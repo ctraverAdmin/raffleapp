@@ -327,7 +327,16 @@ export default function App() {
       const prize = cleanPrizeName(row.Item || "", raffleNumber);
 
       const qty = Number(row.Qty) || 0;
-      const grossSales = moneyToNumber(row["Gross Sales"]);
+     const grossSales = moneyToNumber(
+  row["Gross Sales"] ||
+  row["Gross sales"] ||
+  row["Total Sales"] ||
+  row["Total collected"] ||
+  row["Net Sales"] ||
+  row["Item Sales"] ||
+  row["Amount"] ||
+  0
+);
       const feesFromSquare = moneyToNumber(row.Fees || row["Processing Fees"]);
 
       if (!grouped[raffleNumber]) {
