@@ -70,6 +70,13 @@ function formatMoney(value) {
   });
 }
 
+function calculateReceiptCost(receipts = []) {
+  return receipts.reduce(
+    (sum, receipt) => sum + moneyToNumber(receipt.amount),
+    0
+  );
+}
+
 function extractRaffleNumber(row) {
   const category = getRowValue(row, ["Category"], "");
   const item = getRowValue(row, ["Item", "Item Name", "Name"], "");
@@ -130,11 +137,40 @@ function makeRowKey(row) {
   ].join("|");
 }
 
-function calculateReceiptCost(receipts = []) {
-  return receipts.reduce(
-    (sum, receipt) => sum + moneyToNumber(receipt.amount),
-    0
+function isRaffleInCurrentOrPreviousMonth(raffle) {
+  const today = new Date();
+
+  const previousMonthStart = new Date(
+    today.getFullYear(),
+    today.getMonth() - 1,
+    1
   );
+
+  const nextMonthStart = new Date(
+    today.getFullYear(),
+    today.getMonth() + 1,
+    1
+  );
+
+  const ranFrom = raffle.ranFrom ? new Date(raffle.ranFrom) : null;
+  const ranUntil = raffle.ranUntil ? new Date(raffle.ranUntil) : null;
+
+  if (ranFrom && isNaN(ranFrom)) return false;
+  if (ranUntil && isNaN(ranUntil)) return false;
+
+  const raffleStart = ranFrom || ranUntil;
+  const raffleEnd = ranUntil || ranFrom;
+
+  if (!raffleStart || !raffleEnd) return false;
+
+  return raffleStart < nextMonthStart && raffleEnd >= previousMonthStart;
+}
+
+function isActiveRaffle(raffle) {
+  const stock = Number(raffle.stock || 0);
+  const sold = Number(raffle.onlineSold || 0);
+
+  return !raffle.ranUntil || raffle.needsReceipts || (stock > 0 && sold < stock);
 }
 
 export default function App() {
@@ -505,33 +541,31 @@ export default function App() {
   }, [rows]);
 
   const displayReport = useMemo(() => {
-    const baseReport = activeCsvReport.length > 0 ? activeCsvReport : savedSummary;
+    const baseReport =
+      activeCsvReport.length > 0 ? activeCsvReport : savedSummary;
 
-    const merged = baseReport.map((raffle) => {
-      const saved = raffleData[raffle.raffleNumber] || {};
-      const receipts = saved.receipts || raffle.receipts || [];
-      const receiptCost = calculateReceiptCost(receipts);
+    return baseReport
+      .map((raffle) => {
+        const currentRaffleData = raffleData[raffle.raffleNumber] || {};
+        const receipts = currentRaffleData.receipts || raffle.receipts || [];
 
-      const stock = Number(saved.stock ?? raffle.stock ?? 0);
-      const squareFees = Number(raffle.squareFees || 0);
-      const grossSales = Number(raffle.grossSales || 0);
-      const totalExpenses = squareFees + receiptCost;
-      const netProfit = grossSales - totalExpenses;
+        const receiptCost = calculateReceiptCost(receipts);
+        const grossSales = Number(raffle.grossSales || 0);
+        const squareFees = Number(raffle.squareFees || 0);
+        const totalExpenses = squareFees + receiptCost;
+        const netProfit = grossSales - totalExpenses;
 
-      return {
-        ...raffle,
-        stock,
-        receipts,
-        receiptCost,
-        totalExpenses,
-        netProfit,
-        needsReceipts: receiptCost <= 0,
-      };
-    });
-
-    return merged.sort(
-      (a, b) => Number(a.raffleNumber) - Number(b.raffleNumber)
-    );
+        return {
+          ...raffle,
+          stock: Number(currentRaffleData.stock ?? raffle.stock ?? 0),
+          receipts,
+          receiptCost,
+          totalExpenses,
+          netProfit,
+          needsReceipts: receiptCost <= 0,
+        };
+      })
+      .sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
   }, [activeCsvReport, savedSummary, raffleData]);
 
   const totals = useMemo(() => {
@@ -554,6 +588,14 @@ export default function App() {
         netProfit: 0,
       }
     );
+  }, [displayReport]);
+
+  const printRaffles = useMemo(() => {
+    return displayReport.filter((raffle) => {
+      return (
+        isRaffleInCurrentOrPreviousMonth(raffle) || isActiveRaffle(raffle)
+      );
+    });
   }, [displayReport]);
 
   async function saveToSharePoint() {
@@ -617,11 +659,7 @@ export default function App() {
         for (const receipt of receipts) {
           const amount = moneyToNumber(receipt.amount);
 
-          if (
-            !receipt.vendor &&
-            !receipt.description &&
-            amount === 0
-          ) {
+          if (!receipt.vendor && !receipt.description && amount === 0) {
             continue;
           }
 
@@ -727,7 +765,7 @@ export default function App() {
             </div>
           </section>
 
-          <section className="report-card">
+          <section className="report-card screen-report">
             <h2>Raffle Cost Breakout</h2>
 
             <div className="table-wrap">
@@ -821,6 +859,67 @@ export default function App() {
                     <td className="no-print"></td>
                   </tr>
                 </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <section className="report-card print-only">
+            <h2>Printed Raffle Detail</h2>
+            <p className="print-note">
+              Grand totals above include all months. Detail below includes only
+              last month, current month, and active raffles.
+            </p>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Raffle #</th>
+                    <th>Prize</th>
+                    <th>Online Sold</th>
+                    <th>Stock</th>
+                    <th>Ran From</th>
+                    <th>Ran Until</th>
+                    <th>Months Ran</th>
+                    <th>Gross Sales</th>
+                    <th>Square Fees</th>
+                    <th>Receipt Cost</th>
+                    <th>Total Expenses</th>
+                    <th>Net Profit</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {printRaffles.map((r) => (
+                    <tr key={`print-${r.raffleNumber}`}>
+                      <td>#{r.raffleNumber}</td>
+                      <td>
+                        <strong>{r.prize}</strong>
+                        {isActiveRaffle(r) && (
+                          <div className="receipt-warning">
+                            Active / Needs Review
+                          </div>
+                        )}
+                      </td>
+                      <td>{r.onlineSold}</td>
+                      <td>{r.stock}</td>
+                      <td>{formatDisplayDate(r.ranFrom)}</td>
+                      <td>{formatDisplayDate(r.ranUntil)}</td>
+                      <td>{r.monthsRan}</td>
+                      <td>{formatMoney(r.grossSales)}</td>
+                      <td>{formatMoney(r.squareFees)}</td>
+                      <td>{formatMoney(r.receiptCost)}</td>
+                      <td>{formatMoney(r.totalExpenses)}</td>
+                      <td
+                        className={
+                          r.netProfit >= 0 ? "profit strong" : "loss strong"
+                        }
+                      >
+                        {formatMoney(r.netProfit)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           </section>
