@@ -612,8 +612,8 @@ export default function App() {
   }, [csvReport, savedSummary, raffleData]);
 
   const printReport = useMemo(() => {
-    return displayReport.filter((raffle) => isRaffleInLastQuarter(raffle));
-  }, [displayReport]);
+  return displayReport;
+}, [displayReport]);
 
   const totals = useMemo(() => {
     return displayReport.reduce(
