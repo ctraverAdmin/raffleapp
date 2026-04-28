@@ -130,6 +130,13 @@ function makeRowKey(row) {
   ].join("|");
 }
 
+function calculateReceiptCost(receipts = []) {
+  return receipts.reduce(
+    (sum, receipt) => sum + moneyToNumber(receipt.amount),
+    0
+  );
+}
+
 export default function App() {
   const [rows, setRows] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -278,7 +285,8 @@ export default function App() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      transformHeader: (header) => String(header || "").replace(/^\uFEFF/, "").trim(),
+      transformHeader: (header) =>
+        String(header || "").replace(/^\uFEFF/, "").trim(),
       complete: (results) => {
         const incomingRows = results.data || [];
 
@@ -309,7 +317,9 @@ export default function App() {
     setRaffleData((prev) => ({
       ...prev,
       [raffleNumber]: {
-        ...prev[raffleNumber],
+        stock: "",
+        receipts: [],
+        ...(prev[raffleNumber] || {}),
         [field]: value,
       },
     }));
@@ -317,14 +327,17 @@ export default function App() {
 
   function addReceipt(raffleNumber) {
     setRaffleData((prev) => {
-      const currentReceipts = prev[raffleNumber]?.receipts || [];
+      const current = prev[raffleNumber] || {
+        stock: "",
+        receipts: [],
+      };
 
       return {
         ...prev,
         [raffleNumber]: {
-          ...prev[raffleNumber],
+          ...current,
           receipts: [
-            ...currentReceipts,
+            ...(current.receipts || []),
             {
               id: crypto.randomUUID(),
               vendor: "",
@@ -339,13 +352,16 @@ export default function App() {
 
   function updateReceipt(raffleNumber, receiptId, field, value) {
     setRaffleData((prev) => {
-      const currentReceipts = prev[raffleNumber]?.receipts || [];
+      const current = prev[raffleNumber] || {
+        stock: "",
+        receipts: [],
+      };
 
       return {
         ...prev,
         [raffleNumber]: {
-          ...prev[raffleNumber],
-          receipts: currentReceipts.map((receipt) =>
+          ...current,
+          receipts: (current.receipts || []).map((receipt) =>
             receipt.id === receiptId ? { ...receipt, [field]: value } : receipt
           ),
         },
@@ -355,13 +371,16 @@ export default function App() {
 
   function deleteReceipt(raffleNumber, receiptId) {
     setRaffleData((prev) => {
-      const currentReceipts = prev[raffleNumber]?.receipts || [];
+      const current = prev[raffleNumber] || {
+        stock: "",
+        receipts: [],
+      };
 
       return {
         ...prev,
         [raffleNumber]: {
-          ...prev[raffleNumber],
-          receipts: currentReceipts.filter(
+          ...current,
+          receipts: (current.receipts || []).filter(
             (receipt) => receipt.id !== receiptId
           ),
         },
@@ -369,7 +388,7 @@ export default function App() {
     });
   }
 
-  const report = useMemo(() => {
+  const activeCsvReport = useMemo(() => {
     const grouped = {};
 
     rows.forEach((row) => {
@@ -442,15 +461,7 @@ export default function App() {
       }
     });
 
-    const activeReport = Object.values(grouped).map((raffle) => {
-      const saved = raffleData[raffle.raffleNumber] || {};
-      const receipts = saved.receipts || [];
-
-      const receiptCost = receipts.reduce(
-        (sum, receipt) => sum + moneyToNumber(receipt.amount),
-        0
-      );
-
+    return Object.values(grouped).map((raffle) => {
       const validDates = raffle.dates
         .map((dateValue) => new Date(dateValue))
         .filter((date) => !isNaN(date))
@@ -474,30 +485,54 @@ export default function App() {
           ? Math.abs(raffle.squareFeesActual)
           : raffle.grossSales * 0.029 + transactionCount * 0.3;
 
-      const totalExpenses = squareFees + receiptCost;
-      const netProfit = raffle.grossSales - totalExpenses;
-
       return {
-        ...raffle,
-        stock: Number(saved.stock || 0),
-        receipts,
-        receiptCost,
+        raffleNumber: raffle.raffleNumber,
+        prize: raffle.prize,
+        onlineSold: raffle.onlineSold,
+        stock: 0,
         ranFrom,
         ranUntil,
         monthsRan,
+        grossSales: raffle.grossSales,
         squareFees,
+        receiptCost: 0,
+        totalExpenses: 0,
+        netProfit: 0,
+        needsReceipts: true,
+        receipts: [],
+      };
+    });
+  }, [rows]);
+
+  const displayReport = useMemo(() => {
+    const baseReport = activeCsvReport.length > 0 ? activeCsvReport : savedSummary;
+
+    const merged = baseReport.map((raffle) => {
+      const saved = raffleData[raffle.raffleNumber] || {};
+      const receipts = saved.receipts || raffle.receipts || [];
+      const receiptCost = calculateReceiptCost(receipts);
+
+      const stock = Number(saved.stock ?? raffle.stock ?? 0);
+      const squareFees = Number(raffle.squareFees || 0);
+      const grossSales = Number(raffle.grossSales || 0);
+      const totalExpenses = squareFees + receiptCost;
+      const netProfit = grossSales - totalExpenses;
+
+      return {
+        ...raffle,
+        stock,
+        receipts,
+        receiptCost,
         totalExpenses,
         netProfit,
         needsReceipts: receiptCost <= 0,
       };
     });
 
-    return activeReport.sort(
+    return merged.sort(
       (a, b) => Number(a.raffleNumber) - Number(b.raffleNumber)
     );
-  }, [rows, raffleData]);
-
-  const displayReport = report.length > 0 ? report : savedSummary;
+  }, [activeCsvReport, savedSummary, raffleData]);
 
   const totals = useMemo(() => {
     return displayReport.reduce(
@@ -534,7 +569,7 @@ export default function App() {
 
     if (
       !window.confirm(
-        "This will replace the current SharePoint raffle summary and receipts with what is on this screen. Continue?"
+        "This will replace the current SharePoint raffle summary and receipt list with what is on this screen. Continue?"
       )
     ) {
       return;
@@ -549,6 +584,13 @@ export default function App() {
       setStatus("Saving summary to SharePoint...");
 
       for (const r of displayReport) {
+        const receipts = raffleData[r.raffleNumber]?.receipts || r.receipts || [];
+        const receiptCost = calculateReceiptCost(receipts);
+        const squareFees = Number(r.squareFees || 0);
+        const grossSales = Number(r.grossSales || 0);
+        const totalExpenses = squareFees + receiptCost;
+        const netProfit = grossSales - totalExpenses;
+
         await createListItem(sp.siteId, sp.summaryListId, sp.summaryColumnMap, {
           Title: `Raffle #${r.raffleNumber}`,
           "Raffle Number": String(r.raffleNumber),
@@ -559,11 +601,11 @@ export default function App() {
           "Ran Until": r.ranUntil || null,
           "Months Ran": r.monthsRan || "",
           "Gross Sales": Number(r.grossSales || 0),
-          "Square Fees": Number(r.squareFees || 0),
-          "Receipt Cost": Number(r.receiptCost || 0),
-          "Total Expenses": Number(r.totalExpenses || 0),
-          "Net Profit": Number(r.netProfit || 0),
-          "Needs Receipt": Boolean(r.needsReceipts),
+          "Square Fees": squareFees,
+          "Receipt Cost": receiptCost,
+          "Total Expenses": totalExpenses,
+          "Net Profit": netProfit,
+          "Needs Receipt": receiptCost <= 0,
         });
       }
 
@@ -573,6 +615,16 @@ export default function App() {
         const receipts = raffleData[r.raffleNumber]?.receipts || r.receipts || [];
 
         for (const receipt of receipts) {
+          const amount = moneyToNumber(receipt.amount);
+
+          if (
+            !receipt.vendor &&
+            !receipt.description &&
+            amount === 0
+          ) {
+            continue;
+          }
+
           await createListItem(
             sp.siteId,
             sp.receiptsListId,
@@ -583,7 +635,7 @@ export default function App() {
               Prize: r.prize || "",
               Vendor: receipt.vendor || "",
               Description: receipt.description || "",
-              Amount: Number(receipt.amount || 0),
+              Amount: amount,
             }
           );
         }
@@ -715,7 +767,9 @@ export default function App() {
                       <td className="edit-cell no-print">
                         <input
                           type="number"
-                          value={raffleData[r.raffleNumber]?.stock ?? r.stock ?? ""}
+                          value={
+                            raffleData[r.raffleNumber]?.stock ?? r.stock ?? ""
+                          }
                           onChange={(e) =>
                             updateRaffleField(
                               r.raffleNumber,
