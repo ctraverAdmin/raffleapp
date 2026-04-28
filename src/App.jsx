@@ -8,9 +8,59 @@ import {
   createListItem,
 } from "./sharepoint";
 
+function normalizeName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/^\uFEFF/, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getRowValue(row, possibleNames, fallback = "") {
+  const normalizedLookup = {};
+
+  Object.keys(row || {}).forEach((key) => {
+    normalizedLookup[normalizeName(key)] = row[key];
+  });
+
+  for (const name of possibleNames) {
+    const value = normalizedLookup[normalizeName(name)];
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+
+  return fallback;
+}
+
+function getField(fields, columnMap, displayName, fallback = "") {
+  const internalName = columnMap?.[displayName];
+
+  if (internalName && fields?.[internalName] !== undefined) {
+    return fields[internalName];
+  }
+
+  if (fields?.[displayName] !== undefined) {
+    return fields[displayName];
+  }
+
+  const normalizedWanted = normalizeName(displayName);
+
+  const matchingKey = Object.keys(fields || {}).find(
+    (key) => normalizeName(key) === normalizedWanted
+  );
+
+  return matchingKey ? fields[matchingKey] : fallback;
+}
+
 function moneyToNumber(value) {
   if (value === null || value === undefined || value === "") return 0;
-  return Number(String(value).replace(/[$,()]/g, "")) || 0;
+
+  const cleaned = String(value)
+    .replace(/[$,]/g, "")
+    .replace(/[()]/g, "")
+    .trim();
+
+  return Number(cleaned) || 0;
 }
 
 function formatMoney(value) {
@@ -21,13 +71,16 @@ function formatMoney(value) {
 }
 
 function extractRaffleNumber(row) {
-  const text = `${row.Category || ""} ${row.Item || ""}`;
+  const category = getRowValue(row, ["Category"], "");
+  const item = getRowValue(row, ["Item", "Item Name", "Name"], "");
+  const text = `${category} ${item}`;
   const match = text.match(/raffle\s*#?\s*(\d+)/i);
   return match ? match[1] : "Unknown";
 }
 
 function cleanPrizeName(item, raffleNumber) {
   if (!item) return "Unknown Prize";
+
   return item
     .replace(new RegExp(`Raffle\\s*#?\\s*${raffleNumber}`, "i"), "")
     .replace(/^[-–—:\s]+/, "")
@@ -51,22 +104,11 @@ function formatDisplayDate(value) {
 function formatMonthYear(value) {
   const date = new Date(value);
   if (isNaN(date)) return "";
+
   return date.toLocaleString("en-US", {
     month: "short",
     year: "numeric",
   });
-}
-
-function makeRowKey(row) {
-  return [
-    row.Date,
-    row.Time,
-    row.Item,
-    row.Qty,
-    row["Gross Sales"],
-    row["Transaction ID"],
-    row["Payment ID"],
-  ].join("|");
 }
 
 function cleanRaffleNumber(value) {
@@ -76,9 +118,16 @@ function cleanRaffleNumber(value) {
     .trim();
 }
 
-function getField(fields, columnMap, displayName, fallback = "") {
-  const internalName = columnMap?.[displayName];
-  return fields?.[internalName] ?? fields?.[displayName] ?? fallback;
+function makeRowKey(row) {
+  return [
+    getRowValue(row, ["Date"], ""),
+    getRowValue(row, ["Time"], ""),
+    getRowValue(row, ["Item", "Item Name", "Name"], ""),
+    getRowValue(row, ["Qty", "Quantity"], ""),
+    getRowValue(row, ["Gross Sales", "Gross sales", "Net Sales"], ""),
+    getRowValue(row, ["Transaction ID", "Transaction Id"], ""),
+    getRowValue(row, ["Payment ID", "Payment Id"], ""),
+  ].join("|");
 }
 
 export default function App() {
@@ -229,6 +278,7 @@ export default function App() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (header) => String(header || "").replace(/^\uFEFF/, "").trim(),
       complete: (results) => {
         const incomingRows = results.data || [];
 
@@ -324,20 +374,48 @@ export default function App() {
 
     rows.forEach((row) => {
       const raffleNumber = extractRaffleNumber(row);
-      const prize = cleanPrizeName(row.Item || "", raffleNumber);
+      const item = getRowValue(row, ["Item", "Item Name", "Name"], "");
+      const prize = cleanPrizeName(item, raffleNumber);
 
-      const qty = Number(row.Qty) || 0;
-     const grossSales = moneyToNumber(
-  row["Gross Sales"] ||
-  row["Gross sales"] ||
-  row["Total Sales"] ||
-  row["Total collected"] ||
-  row["Net Sales"] ||
-  row["Item Sales"] ||
-  row["Amount"] ||
-  0
-);
-      const feesFromSquare = moneyToNumber(row.Fees || row["Processing Fees"]);
+      const qty = Number(getRowValue(row, ["Qty", "Quantity"], 0)) || 0;
+
+      const grossSales = moneyToNumber(
+        getRowValue(
+          row,
+          [
+            "Gross Sales",
+            "Gross sales",
+            "Gross Sale",
+            "Gross Amount",
+            "Item Gross Sales",
+            "Total Sales",
+            "Net Sales",
+            "Amount",
+          ],
+          0
+        )
+      );
+
+      const feesFromSquare = moneyToNumber(
+        getRowValue(
+          row,
+          [
+            "Fees",
+            "Processing Fees",
+            "Square Fees",
+            "Card Processing Fees",
+            "Fee",
+          ],
+          0
+        )
+      );
+
+      const dateValue = getRowValue(row, ["Date", "Transaction Date"], "");
+      const transactionId = getRowValue(
+        row,
+        ["Transaction ID", "Transaction Id"],
+        ""
+      );
 
       if (!grouped[raffleNumber]) {
         grouped[raffleNumber] = {
@@ -355,12 +433,12 @@ export default function App() {
       grouped[raffleNumber].grossSales += grossSales;
       grouped[raffleNumber].squareFeesActual += feesFromSquare;
 
-      if (row["Transaction ID"]) {
-        grouped[raffleNumber].transactions.add(row["Transaction ID"]);
+      if (transactionId) {
+        grouped[raffleNumber].transactions.add(transactionId);
       }
 
-      if (row.Date) {
-        grouped[raffleNumber].dates.push(row.Date);
+      if (dateValue) {
+        grouped[raffleNumber].dates.push(dateValue);
       }
     });
 
@@ -476,9 +554,7 @@ export default function App() {
           "Raffle Number": String(r.raffleNumber),
           Prize: r.prize || "",
           "Online Sold": Number(r.onlineSold || 0),
-          Stock: Number(
-            raffleData[r.raffleNumber]?.stock ?? r.stock ?? 0
-          ),
+          Stock: Number(raffleData[r.raffleNumber]?.stock ?? r.stock ?? 0),
           "Ran From": r.ranFrom || null,
           "Ran Until": r.ranUntil || null,
           "Months Ran": r.monthsRan || "",
@@ -513,11 +589,11 @@ export default function App() {
         }
       }
 
-      setSavedSummary(displayReport);
       setRows([]);
       setUploadedFiles([]);
       setStatus("Saved to SharePoint.");
       alert("Saved to SharePoint.");
+
       await loadFromSharePoint(sp);
     } catch (error) {
       console.error(error);
@@ -639,9 +715,7 @@ export default function App() {
                       <td className="edit-cell no-print">
                         <input
                           type="number"
-                          value={
-                            raffleData[r.raffleNumber]?.stock ?? r.stock ?? ""
-                          }
+                          value={raffleData[r.raffleNumber]?.stock ?? r.stock ?? ""}
                           onChange={(e) =>
                             updateRaffleField(
                               r.raffleNumber,
