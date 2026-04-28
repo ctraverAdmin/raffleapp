@@ -137,20 +137,29 @@ function makeRowKey(row) {
   ].join("|");
 }
 
-function isRaffleInLastMonthCurrentMonthOrActive(raffle) {
+function getLastQuarterRange() {
   const today = new Date();
+  const currentQuarter = Math.floor(today.getMonth() / 3);
 
-  const startOfLastMonth = new Date(
-    today.getFullYear(),
-    today.getMonth() - 1,
-    1
-  );
+  let lastQuarter;
+  let year = today.getFullYear();
 
-  const startOfNextMonth = new Date(
-    today.getFullYear(),
-    today.getMonth() + 1,
-    1
-  );
+  if (currentQuarter === 0) {
+    lastQuarter = 3;
+    year -= 1;
+  } else {
+    lastQuarter = currentQuarter - 1;
+  }
+
+  const startMonth = lastQuarter * 3;
+  const start = new Date(year, startMonth, 1);
+  const end = new Date(year, startMonth + 3, 0);
+
+  return { start, end };
+}
+
+function isRaffleInLastQuarter(raffle) {
+  const { start, end } = getLastQuarterRange();
 
   const ranFrom = raffle.ranFrom ? new Date(raffle.ranFrom) : null;
   const ranUntil = raffle.ranUntil ? new Date(raffle.ranUntil) : null;
@@ -158,20 +167,20 @@ function isRaffleInLastMonthCurrentMonthOrActive(raffle) {
   const validRanFrom = ranFrom && !isNaN(ranFrom) ? ranFrom : null;
   const validRanUntil = ranUntil && !isNaN(ranUntil) ? ranUntil : null;
 
-  const stock = Number(raffle.stock || 0);
-  const sold = Number(raffle.onlineSold || 0);
-
-  const isActive =
-    !validRanUntil || raffle.needsReceipts || (stock > 0 && sold < stock);
-
-  if (isActive) return true;
-
   const raffleStart = validRanFrom || validRanUntil;
   const raffleEnd = validRanUntil || validRanFrom;
 
   if (!raffleStart || !raffleEnd) return false;
 
-  return raffleStart < startOfNextMonth && raffleEnd >= startOfLastMonth;
+  return raffleStart <= end && raffleEnd >= start;
+}
+
+function getLastQuarterLabel() {
+  const { start, end } = getLastQuarterRange();
+
+  return `${start.toLocaleDateString("en-US")} - ${end.toLocaleDateString(
+    "en-US"
+  )}`;
 }
 
 export default function App() {
@@ -261,6 +270,9 @@ export default function App() {
         needsReceipts: Boolean(
           getField(f, connection.summaryColumnMap, "Needs Receipt", false)
         ),
+        inactive: Boolean(
+          getField(f, connection.summaryColumnMap, "Inactive", false)
+        ),
         receipts: [],
       };
     });
@@ -280,6 +292,7 @@ export default function App() {
       if (!groupedReceipts[cleanNumber]) {
         groupedReceipts[cleanNumber] = {
           stock: "",
+          inactive: false,
           receipts: [],
         };
       }
@@ -303,10 +316,12 @@ export default function App() {
       if (!groupedReceipts[r.raffleNumber]) {
         groupedReceipts[r.raffleNumber] = {
           stock: r.stock,
+          inactive: Boolean(r.inactive),
           receipts: [],
         };
       } else {
         groupedReceipts[r.raffleNumber].stock = r.stock;
+        groupedReceipts[r.raffleNumber].inactive = Boolean(r.inactive);
       }
     });
 
@@ -355,6 +370,7 @@ export default function App() {
       ...prev,
       [raffleNumber]: {
         stock: "",
+        inactive: false,
         receipts: [],
         ...(prev[raffleNumber] || {}),
         [field]: value,
@@ -362,10 +378,29 @@ export default function App() {
     }));
   }
 
+  function toggleInactive(raffleNumber) {
+    setRaffleData((prev) => {
+      const current = prev[raffleNumber] || {
+        stock: "",
+        inactive: false,
+        receipts: [],
+      };
+
+      return {
+        ...prev,
+        [raffleNumber]: {
+          ...current,
+          inactive: !Boolean(current.inactive),
+        },
+      };
+    });
+  }
+
   function addReceipt(raffleNumber) {
     setRaffleData((prev) => {
       const current = prev[raffleNumber] || {
         stock: "",
+        inactive: false,
         receipts: [],
       };
 
@@ -391,6 +426,7 @@ export default function App() {
     setRaffleData((prev) => {
       const current = prev[raffleNumber] || {
         stock: "",
+        inactive: false,
         receipts: [],
       };
 
@@ -410,6 +446,7 @@ export default function App() {
     setRaffleData((prev) => {
       const current = prev[raffleNumber] || {
         stock: "",
+        inactive: false,
         receipts: [],
       };
 
@@ -522,11 +559,16 @@ export default function App() {
           ? Math.abs(raffle.squareFeesActual)
           : raffle.grossSales * 0.029 + transactionCount * 0.3;
 
+      const existingSaved = savedSummary.find(
+        (saved) => saved.raffleNumber === raffle.raffleNumber
+      );
+
       return {
         raffleNumber: raffle.raffleNumber,
-        prize: raffle.prize,
+        prize: raffle.prize || existingSaved?.prize || "",
         onlineSold: raffle.onlineSold,
-        stock: 0,
+        stock: existingSaved?.stock || 0,
+        inactive: Boolean(existingSaved?.inactive),
         ranFrom,
         ranUntil,
         monthsRan,
@@ -539,7 +581,7 @@ export default function App() {
         receipts: [],
       };
     });
-  }, [rows]);
+  }, [rows, savedSummary]);
 
   const displayReport = useMemo(() => {
     const baseReport = csvReport.length > 0 ? csvReport : savedSummary;
@@ -558,6 +600,7 @@ export default function App() {
         return {
           ...raffle,
           stock: Number(currentData.stock ?? raffle.stock ?? 0),
+          inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false),
           receipts,
           receiptCost,
           totalExpenses,
@@ -569,9 +612,7 @@ export default function App() {
   }, [csvReport, savedSummary, raffleData]);
 
   const printReport = useMemo(() => {
-    return displayReport.filter((raffle) =>
-      isRaffleInLastMonthCurrentMonthOrActive(raffle)
-    );
+    return displayReport.filter((raffle) => isRaffleInLastQuarter(raffle));
   }, [displayReport]);
 
   const totals = useMemo(() => {
@@ -646,6 +687,7 @@ export default function App() {
           "Total Expenses": totalExpenses,
           "Net Profit": netProfit,
           "Needs Receipt": receiptCost <= 0,
+          Inactive: Boolean(r.inactive),
         });
       }
 
@@ -696,8 +738,8 @@ export default function App() {
         <p className="eyebrow">SharePoint Raffle Reporting</p>
         <h1>Raffle Cost Breakout Report</h1>
         <p>
-          Upload Square CSV files, enter receipt costs, and save the monthly
-          raffle report to SharePoint so everyone sees the same data.
+          Upload Square CSV files, enter receipt costs, mark raffles active or
+          inactive, and save the monthly raffle report to SharePoint.
         </p>
       </header>
 
@@ -771,6 +813,7 @@ export default function App() {
                 <thead>
                   <tr>
                     <th>Raffle #</th>
+                    <th>Status</th>
                     <th>Prize</th>
                     <th>Online Sold</th>
                     <th>Stock</th>
@@ -788,8 +831,25 @@ export default function App() {
 
                 <tbody>
                   {displayReport.map((r) => (
-                    <tr key={r.raffleNumber}>
+                    <tr
+                      key={r.raffleNumber}
+                      className={r.inactive ? "inactive-row" : ""}
+                    >
                       <td>#{r.raffleNumber}</td>
+
+                      <td className="no-print">
+                        <button
+                          className={
+                            r.inactive
+                              ? "inactive-button active"
+                              : "inactive-button"
+                          }
+                          onClick={() => toggleInactive(r.raffleNumber)}
+                        >
+                          {r.inactive ? "Inactive" : "Active"}
+                        </button>
+                      </td>
+
                       <td>
                         <strong>{r.prize}</strong>
                         {r.needsReceipts && (
@@ -798,6 +858,7 @@ export default function App() {
                           </div>
                         )}
                       </td>
+
                       <td>{r.onlineSold}</td>
 
                       <td className="edit-cell no-print">
@@ -843,7 +904,7 @@ export default function App() {
 
                 <tfoot>
                   <tr>
-                    <td colSpan="2">TOTALS</td>
+                    <td colSpan="3">TOTALS</td>
                     <td>{totals.onlineSold}</td>
                     <td></td>
                     <td></td>
@@ -862,10 +923,11 @@ export default function App() {
           </section>
 
           <section className="report-card print-only">
-            <h2>Printed Raffle Detail</h2>
+            <h2>Last Quarter Raffle Detail</h2>
             <p className="print-note">
-              Grand totals above include all months. Detail below includes only
-              last month, current month, and active raffles.
+              Grand totals above include all raffles and all months. Detail
+              below includes active and inactive raffles from last quarter:{" "}
+              {getLastQuarterLabel()}.
             </p>
 
             <div className="table-wrap">
@@ -873,6 +935,7 @@ export default function App() {
                 <thead>
                   <tr>
                     <th>Raffle #</th>
+                    <th>Status</th>
                     <th>Prize</th>
                     <th>Online Sold</th>
                     <th>Stock</th>
@@ -891,12 +954,11 @@ export default function App() {
                   {printReport.map((r) => (
                     <tr key={`print-${r.raffleNumber}`}>
                       <td>#{r.raffleNumber}</td>
+                      <td>{r.inactive ? "Inactive" : "Active"}</td>
                       <td>
                         <strong>{r.prize}</strong>
                         {r.needsReceipts && (
-                          <div className="receipt-warning">
-                            Active / Needs Review
-                          </div>
+                          <div className="receipt-warning">Needs Review</div>
                         )}
                       </td>
                       <td>{r.onlineSold}</td>
@@ -917,6 +979,14 @@ export default function App() {
                       </td>
                     </tr>
                   ))}
+
+                  {printReport.length === 0 && (
+                    <tr>
+                      <td colSpan="13">
+                        No raffles found for last quarter.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -933,7 +1003,16 @@ export default function App() {
                 <div className="receipt-box" key={`receipts-${r.raffleNumber}`}>
                   <div className="receipt-header">
                     <div>
-                      <h3>Raffle #{r.raffleNumber}</h3>
+                      <h3>
+                        Raffle #{r.raffleNumber}{" "}
+                        <span
+                          className={
+                            r.inactive ? "status-pill inactive" : "status-pill"
+                          }
+                        >
+                          {r.inactive ? "Inactive" : "Active"}
+                        </span>
+                      </h3>
                       <p>{r.prize}</p>
                     </div>
 

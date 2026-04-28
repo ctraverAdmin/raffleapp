@@ -84,7 +84,8 @@ button,
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease, background 0.15s ease,
+    box-shadow 0.15s ease;
   box-shadow: 0 4px 12px rgba(15, 95, 140, 0.25);
 }
 
@@ -187,7 +188,7 @@ button:active,
 
 table {
   width: 100%;
-  min-width: 1200px;
+  min-width: 1300px;
   border-collapse: collapse;
   background: #ffffff;
 }
@@ -210,6 +211,11 @@ td {
 
 tbody tr:nth-child(even) {
   background: #f8fafc;
+}
+
+.inactive-row {
+  opacity: 0.72;
+  background: #f1f5f9 !important;
 }
 
 tfoot td {
@@ -302,6 +308,40 @@ tfoot td {
 
 .danger:hover {
   background: #991b1b;
+}
+
+.inactive-button {
+  background: #047857;
+  min-width: 90px;
+}
+
+.inactive-button:hover {
+  background: #065f46;
+}
+
+.inactive-button.active {
+  background: #b91c1c;
+}
+
+.inactive-button.active:hover {
+  background: #991b1b;
+}
+
+.status-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
+.status-pill.inactive {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .print-only {
