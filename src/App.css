@@ -40,3 +40,46 @@
     font-size: 9px;
   }
 }
+
+.print-only {
+  display: none;
+}
+
+.print-note {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #475569;
+}
+
+@media print {
+  .no-print,
+  .screen-report {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .summary-grid {
+    page-break-after: avoid;
+  }
+
+  .report-card {
+    box-shadow: none !important;
+    border: 1px solid #ddd;
+  }
+
+  table {
+    font-size: 10px;
+  }
+
+  th,
+  td {
+    padding: 6px;
+  }
+
+  .receipt-warning {
+    font-size: 9px;
+  }
+}

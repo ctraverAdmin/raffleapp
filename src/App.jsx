@@ -137,16 +137,16 @@ function makeRowKey(row) {
   ].join("|");
 }
 
-function isRaffleInCurrentOrPreviousMonth(raffle) {
+function isRaffleInLastMonthCurrentMonthOrActive(raffle) {
   const today = new Date();
 
-  const previousMonthStart = new Date(
+  const startOfLastMonth = new Date(
     today.getFullYear(),
     today.getMonth() - 1,
     1
   );
 
-  const nextMonthStart = new Date(
+  const startOfNextMonth = new Date(
     today.getFullYear(),
     today.getMonth() + 1,
     1
@@ -155,22 +155,23 @@ function isRaffleInCurrentOrPreviousMonth(raffle) {
   const ranFrom = raffle.ranFrom ? new Date(raffle.ranFrom) : null;
   const ranUntil = raffle.ranUntil ? new Date(raffle.ranUntil) : null;
 
-  if (ranFrom && isNaN(ranFrom)) return false;
-  if (ranUntil && isNaN(ranUntil)) return false;
+  const validRanFrom = ranFrom && !isNaN(ranFrom) ? ranFrom : null;
+  const validRanUntil = ranUntil && !isNaN(ranUntil) ? ranUntil : null;
 
-  const raffleStart = ranFrom || ranUntil;
-  const raffleEnd = ranUntil || ranFrom;
-
-  if (!raffleStart || !raffleEnd) return false;
-
-  return raffleStart < nextMonthStart && raffleEnd >= previousMonthStart;
-}
-
-function isActiveRaffle(raffle) {
   const stock = Number(raffle.stock || 0);
   const sold = Number(raffle.onlineSold || 0);
 
-  return !raffle.ranUntil || raffle.needsReceipts || (stock > 0 && sold < stock);
+  const isActive =
+    !validRanUntil || raffle.needsReceipts || (stock > 0 && sold < stock);
+
+  if (isActive) return true;
+
+  const raffleStart = validRanFrom || validRanUntil;
+  const raffleEnd = validRanUntil || validRanFrom;
+
+  if (!raffleStart || !raffleEnd) return false;
+
+  return raffleStart < startOfNextMonth && raffleEnd >= startOfLastMonth;
 }
 
 export default function App() {
@@ -424,7 +425,7 @@ export default function App() {
     });
   }
 
-  const activeCsvReport = useMemo(() => {
+  const csvReport = useMemo(() => {
     const grouped = {};
 
     rows.forEach((row) => {
@@ -541,13 +542,12 @@ export default function App() {
   }, [rows]);
 
   const displayReport = useMemo(() => {
-    const baseReport =
-      activeCsvReport.length > 0 ? activeCsvReport : savedSummary;
+    const baseReport = csvReport.length > 0 ? csvReport : savedSummary;
 
     return baseReport
       .map((raffle) => {
-        const currentRaffleData = raffleData[raffle.raffleNumber] || {};
-        const receipts = currentRaffleData.receipts || raffle.receipts || [];
+        const currentData = raffleData[raffle.raffleNumber] || {};
+        const receipts = currentData.receipts || raffle.receipts || [];
 
         const receiptCost = calculateReceiptCost(receipts);
         const grossSales = Number(raffle.grossSales || 0);
@@ -557,7 +557,7 @@ export default function App() {
 
         return {
           ...raffle,
-          stock: Number(currentRaffleData.stock ?? raffle.stock ?? 0),
+          stock: Number(currentData.stock ?? raffle.stock ?? 0),
           receipts,
           receiptCost,
           totalExpenses,
@@ -566,7 +566,13 @@ export default function App() {
         };
       })
       .sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
-  }, [activeCsvReport, savedSummary, raffleData]);
+  }, [csvReport, savedSummary, raffleData]);
+
+  const printReport = useMemo(() => {
+    return displayReport.filter((raffle) =>
+      isRaffleInLastMonthCurrentMonthOrActive(raffle)
+    );
+  }, [displayReport]);
 
   const totals = useMemo(() => {
     return displayReport.reduce(
@@ -590,14 +596,6 @@ export default function App() {
     );
   }, [displayReport]);
 
-  const printRaffles = useMemo(() => {
-    return displayReport.filter((raffle) => {
-      return (
-        isRaffleInCurrentOrPreviousMonth(raffle) || isActiveRaffle(raffle)
-      );
-    });
-  }, [displayReport]);
-
   async function saveToSharePoint() {
     if (!sp) {
       alert("Connect to SharePoint first.");
@@ -611,7 +609,7 @@ export default function App() {
 
     if (
       !window.confirm(
-        "This will replace the current SharePoint raffle summary and receipt list with what is on this screen. Continue?"
+        "This will replace the current SharePoint raffle summary and receipts with what is on this screen. Continue?"
       )
     ) {
       return;
@@ -628,8 +626,8 @@ export default function App() {
       for (const r of displayReport) {
         const receipts = raffleData[r.raffleNumber]?.receipts || r.receipts || [];
         const receiptCost = calculateReceiptCost(receipts);
-        const squareFees = Number(r.squareFees || 0);
         const grossSales = Number(r.grossSales || 0);
+        const squareFees = Number(r.squareFees || 0);
         const totalExpenses = squareFees + receiptCost;
         const netProfit = grossSales - totalExpenses;
 
@@ -642,7 +640,7 @@ export default function App() {
           "Ran From": r.ranFrom || null,
           "Ran Until": r.ranUntil || null,
           "Months Ran": r.monthsRan || "",
-          "Gross Sales": Number(r.grossSales || 0),
+          "Gross Sales": grossSales,
           "Square Fees": squareFees,
           "Receipt Cost": receiptCost,
           "Total Expenses": totalExpenses,
@@ -890,12 +888,12 @@ export default function App() {
                 </thead>
 
                 <tbody>
-                  {printRaffles.map((r) => (
+                  {printReport.map((r) => (
                     <tr key={`print-${r.raffleNumber}`}>
                       <td>#{r.raffleNumber}</td>
                       <td>
                         <strong>{r.prize}</strong>
-                        {isActiveRaffle(r) && (
+                        {r.needsReceipts && (
                           <div className="receipt-warning">
                             Active / Needs Review
                           </div>
