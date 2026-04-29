@@ -663,13 +663,7 @@ grossSales: moneyToNumber(
             <div className="summary-card profit-card"><span>Raffle Net Profit</span><strong>{formatMoney(raffleTotals.netProfit)}</strong></div>
           </section>
 
-          <section className="summary-grid">
-            <div className="summary-card"><span>Special Raised</span><strong>{formatMoney(specialFundraiserTotals.amountRaised)}</strong></div>
-            <div className="summary-card"><span>Special Expenses</span><strong>{formatMoney(specialFundraiserTotals.expenses)}</strong></div>
-            <div className="summary-card profit-card"><span>Special Net</span><strong>{formatMoney(specialFundraiserTotals.net)}</strong></div>
-            <div className="summary-card"><span>Treasurer Transfers</span><strong>{formatMoney(transferTotals.amount)}</strong></div>
-            <div className="summary-card profit-card"><span>Final Net Remaining</span><strong>{formatMoney(finalNetRemaining)}</strong></div>
-          </section>
+          
 
           <section className="report-card screen-report">
             <h2>Raffle Cost Breakout</h2>
