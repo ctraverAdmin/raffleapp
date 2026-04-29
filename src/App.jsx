@@ -578,15 +578,38 @@ export default function App() {
         totalExpenses: 0,
         netProfit: 0,
         needsReceipts: true,
-        receipts: [],
+        receipts: existingSaved?.receipts || [],
       };
     });
   }, [rows, savedSummary]);
 
   const displayReport = useMemo(() => {
-    const baseReport = csvReport.length > 0 ? csvReport : savedSummary;
+    const mergedByRaffle = {};
 
-    return baseReport
+    savedSummary.forEach((raffle) => {
+      mergedByRaffle[raffle.raffleNumber] = {
+        ...raffle,
+      };
+    });
+
+    csvReport.forEach((raffle) => {
+      const existing = mergedByRaffle[raffle.raffleNumber] || {};
+
+      mergedByRaffle[raffle.raffleNumber] = {
+        ...existing,
+        ...raffle,
+
+        prize: raffle.prize || existing.prize || "",
+        stock: existing.stock ?? raffle.stock ?? 0,
+        inactive: existing.inactive ?? raffle.inactive ?? false,
+
+        // This is the important part:
+        // Do not lose already-entered receipts when new Square data is uploaded.
+        receipts: existing.receipts || raffle.receipts || [],
+      };
+    });
+
+    return Object.values(mergedByRaffle)
       .map((raffle) => {
         const currentData = raffleData[raffle.raffleNumber] || {};
         const receipts = currentData.receipts || raffle.receipts || [];
@@ -612,8 +635,8 @@ export default function App() {
   }, [csvReport, savedSummary, raffleData]);
 
   const printReport = useMemo(() => {
-  return displayReport;
-}, [displayReport]);
+    return displayReport.filter((raffle) => isRaffleInLastQuarter(raffle));
+  }, [displayReport]);
 
   const totals = useMemo(() => {
     return displayReport.reduce(
@@ -739,7 +762,7 @@ export default function App() {
         <h1>Raffle Cost Breakout Report</h1>
         <p>
           Upload Square CSV files, enter receipt costs, mark raffles active or
-          inactive, and save the monthly raffle report to SharePoint.
+          inactive, and save the raffle report to SharePoint.
         </p>
       </header>
 
@@ -777,7 +800,7 @@ export default function App() {
           <h2>No raffle data loaded yet</h2>
           <p>
             Click <strong>Connect to SharePoint</strong> to load saved data, or
-            upload a Square CSV to create a new report.
+            upload a Square CSV to add new sales data.
           </p>
         </section>
       ) : (
