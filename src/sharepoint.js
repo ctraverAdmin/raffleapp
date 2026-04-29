@@ -8,6 +8,9 @@ const SITE_PATH = "/sites/TCAA";
 
 export const SUMMARY_LIST_NAME = "Raffle Summary List";
 export const RECEIPTS_LIST_NAME = "Raffle Receipts";
+export const CASH_SALES_LIST_NAME = "Raffle Cash Sales";
+export const SPECIAL_FUNDRAISERS_LIST_NAME = "Special Fundraisers";
+export const TREASURER_TRANSFERS_LIST_NAME = "Treasurer Transfers";
 
 const msalConfig = {
   auth: {
@@ -55,12 +58,14 @@ export async function signIn() {
   await msalApp.loginRedirect({
     scopes: ["Sites.ReadWrite.All"],
   });
+
+  return null;
 }
 
 export async function getToken() {
   await initMsal();
 
-  let account = msalApp.getActiveAccount();
+  const account = msalApp.getActiveAccount();
 
   if (!account) {
     await signIn();
@@ -87,7 +92,9 @@ async function graphFetch(url, options = {}) {
   const token = await getToken();
 
   if (!token) {
-    throw new Error("Login is still processing. Click Connect to SharePoint again.");
+    throw new Error(
+      "Login is still processing. Click Connect to SharePoint again."
+    );
   }
 
   const response = await fetch(url, {
@@ -105,6 +112,7 @@ async function graphFetch(url, options = {}) {
   }
 
   if (response.status === 204) return null;
+
   return response.json();
 }
 
@@ -130,6 +138,16 @@ export async function getListId(siteId, listName) {
   return list.id;
 }
 
+export async function getOptionalListId(siteId, listName) {
+  const lists = await graphFetch(
+    `https://graph.microsoft.com/v1.0/sites/${siteId}/lists?$select=id,displayName`
+  );
+
+  const list = lists.value.find((item) => item.displayName === listName);
+
+  return list?.id || null;
+}
+
 export async function getColumnMap(siteId, listId) {
   const columns = await graphFetch(
     `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/columns?$select=name,displayName`
@@ -152,7 +170,7 @@ function makeFields(columnMap, values) {
   Object.entries(values).forEach(([displayName, value]) => {
     if (displayName === "Title") return;
 
-    const internalName = columnMap[displayName];
+    const internalName = columnMap?.[displayName];
 
     if (internalName) {
       fields[internalName] = value;
@@ -163,11 +181,19 @@ function makeFields(columnMap, values) {
 }
 
 export async function getListItems(siteId, listId) {
-  const result = await graphFetch(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?expand=fields&top=999`
-  );
+  let allItems = [];
 
-  return result.value || [];
+  let url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?$expand=fields&$top=999`;
+
+  while (url) {
+    const result = await graphFetch(url);
+
+    allItems = [...allItems, ...(result.value || [])];
+
+    url = result["@odata.nextLink"] || null;
+  }
+
+  return allItems;
 }
 
 export async function clearList(siteId, listId) {
@@ -197,17 +223,48 @@ export async function createListItem(siteId, listId, columnMap, values) {
 
 export async function connectSharePoint() {
   const siteId = await getSiteId();
+
   const summaryListId = await getListId(siteId, SUMMARY_LIST_NAME);
   const receiptsListId = await getListId(siteId, RECEIPTS_LIST_NAME);
+
+  const cashSalesListId = await getOptionalListId(siteId, CASH_SALES_LIST_NAME);
+  const specialFundraisersListId = await getOptionalListId(
+    siteId,
+    SPECIAL_FUNDRAISERS_LIST_NAME
+  );
+  const transfersListId = await getOptionalListId(
+    siteId,
+    TREASURER_TRANSFERS_LIST_NAME
+  );
 
   const summaryColumnMap = await getColumnMap(siteId, summaryListId);
   const receiptsColumnMap = await getColumnMap(siteId, receiptsListId);
 
+  const cashSalesColumnMap = cashSalesListId
+    ? await getColumnMap(siteId, cashSalesListId)
+    : {};
+
+  const specialFundraisersColumnMap = specialFundraisersListId
+    ? await getColumnMap(siteId, specialFundraisersListId)
+    : {};
+
+  const transfersColumnMap = transfersListId
+    ? await getColumnMap(siteId, transfersListId)
+    : {};
+
   return {
     siteId,
+
     summaryListId,
     receiptsListId,
+    cashSalesListId,
+    specialFundraisersListId,
+    transfersListId,
+
     summaryColumnMap,
     receiptsColumnMap,
+    cashSalesColumnMap,
+    specialFundraisersColumnMap,
+    transfersColumnMap,
   };
 }

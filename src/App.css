@@ -292,7 +292,19 @@ tfoot td {
   align-items: center;
 }
 
-.receipt-row input {
+.manual-row {
+  display: grid;
+  grid-template-columns: 140px 150px 140px 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.manual-row.six-col {
+  grid-template-columns: 1.2fr 150px 140px 140px 1.4fr auto;
+}
+
+.receipt-row input,
+.manual-row input {
   width: 100%;
   padding: 10px;
   border: 1px solid #cbd5e1;
@@ -369,7 +381,9 @@ tfoot td {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
   }
 
-  .receipt-row {
+  .receipt-row,
+  .manual-row,
+  .manual-row.six-col {
     grid-template-columns: 1fr;
   }
 }
@@ -448,7 +462,7 @@ tfoot td {
   }
 
   .summary-card strong {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .report-card {
@@ -459,7 +473,7 @@ tfoot td {
 
   table {
     min-width: 0;
-    font-size: 9px;
+    font-size: 8.5px;
   }
 
   th,

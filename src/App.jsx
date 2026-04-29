@@ -151,34 +151,37 @@ function getCurrentYearRange() {
 function getCurrentAndPreviousMonthRange() {
   const today = new Date();
 
-  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  return {
+    start: new Date(today.getFullYear(), today.getMonth() - 1, 1),
+    end: new Date(
+      today.getFullYear(),
+      today.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999
+    ),
+  };
+}
 
-  const end = new Date(
-    today.getFullYear(),
-    today.getMonth() + 1,
-    0,
-    23,
-    59,
-    59,
-    999
-  );
+function overlapsDateRange(startValue, endValue, rangeStart, rangeEnd) {
+  const startDate = startValue ? new Date(startValue) : null;
+  const endDate = endValue ? new Date(endValue) : null;
 
-  return { start, end };
+  const validStart = startDate && !isNaN(startDate) ? startDate : null;
+  const validEnd = endDate && !isNaN(endDate) ? endDate : null;
+
+  const itemStart = validStart || validEnd;
+  const itemEnd = validEnd || validStart;
+
+  if (!itemStart || !itemEnd) return false;
+
+  return itemStart <= rangeEnd && itemEnd >= rangeStart;
 }
 
 function raffleOverlapsDateRange(raffle, start, end) {
-  const ranFrom = raffle.ranFrom ? new Date(raffle.ranFrom) : null;
-  const ranUntil = raffle.ranUntil ? new Date(raffle.ranUntil) : null;
-
-  const validRanFrom = ranFrom && !isNaN(ranFrom) ? ranFrom : null;
-  const validRanUntil = ranUntil && !isNaN(ranUntil) ? ranUntil : null;
-
-  const raffleStart = validRanFrom || validRanUntil;
-  const raffleEnd = validRanUntil || validRanFrom;
-
-  if (!raffleStart || !raffleEnd) return false;
-
-  return raffleStart <= end && raffleEnd >= start;
+  return overlapsDateRange(raffle.ranFrom, raffle.ranUntil, start, end);
 }
 
 function isRaffleInCurrentYear(raffle) {
@@ -196,12 +199,20 @@ function getCurrentYearLabel() {
   return String(year);
 }
 
+function isRowInCurrentYear(row, dateField) {
+  const { start, end } = getCurrentYearRange();
+  return overlapsDateRange(row[dateField], row[dateField], start, end);
+}
+
 export default function App() {
   const [rows, setRows] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [raffleData, setRaffleData] = useState({});
   const [sp, setSp] = useState(null);
   const [savedSummary, setSavedSummary] = useState([]);
+  const [cashSales, setCashSales] = useState([]);
+  const [specialFundraisers, setSpecialFundraisers] = useState([]);
+  const [treasurerTransfers, setTreasurerTransfers] = useState([]);
   const [status, setStatus] = useState("");
 
   async function connect() {
@@ -246,6 +257,18 @@ export default function App() {
       connection.siteId,
       connection.receiptsListId
     );
+
+    const cashSaleItems = connection.cashSalesListId
+      ? await getListItems(connection.siteId, connection.cashSalesListId)
+      : [];
+
+    const fundraiserItems = connection.specialFundraisersListId
+      ? await getListItems(connection.siteId, connection.specialFundraisersListId)
+      : [];
+
+    const transferItems = connection.transfersListId
+      ? await getListItems(connection.siteId, connection.transfersListId)
+      : [];
 
     const loadedSummary = summaryItems.map((item) => {
       const f = item.fields;
@@ -338,8 +361,88 @@ export default function App() {
       }
     });
 
+    const loadedCashSales = cashSaleItems.map((item) => {
+      const f = item.fields;
+
+      return {
+        id: crypto.randomUUID(),
+        raffleNumber: cleanRaffleNumber(
+          getField(f, connection.cashSalesColumnMap, "Raffle Number", "")
+        ),
+        cashDate: getField(f, connection.cashSalesColumnMap, "Cash Date", ""),
+        amount: moneyToNumber(
+          getField(f, connection.cashSalesColumnMap, "Amount", 0)
+        ),
+        notes: getField(f, connection.cashSalesColumnMap, "Notes", ""),
+        inactive: Boolean(
+          getField(f, connection.cashSalesColumnMap, "Inactive", false)
+        ),
+      };
+    });
+
+    const loadedSpecialFundraisers = fundraiserItems.map((item) => {
+      const f = item.fields;
+
+      return {
+        id: crypto.randomUUID(),
+        title: getField(
+          f,
+          connection.specialFundraisersColumnMap,
+          "Title",
+          ""
+        ),
+        fundraiserDate: getField(
+          f,
+          connection.specialFundraisersColumnMap,
+          "Fundraiser Date",
+          ""
+        ),
+        amountRaised: moneyToNumber(
+          getField(
+            f,
+            connection.specialFundraisersColumnMap,
+            "Amount Raised",
+            0
+          )
+        ),
+        expenses: moneyToNumber(
+          getField(f, connection.specialFundraisersColumnMap, "Expenses", 0)
+        ),
+        notes: getField(f, connection.specialFundraisersColumnMap, "Notes", ""),
+        inactive: Boolean(
+          getField(f, connection.specialFundraisersColumnMap, "Inactive", false)
+        ),
+      };
+    });
+
+    const loadedTransfers = transferItems.map((item) => {
+      const f = item.fields;
+
+      return {
+        id: crypto.randomUUID(),
+        title: getField(f, connection.transfersColumnMap, "Title", ""),
+        transferDate: getField(
+          f,
+          connection.transfersColumnMap,
+          "Transfer Date",
+          ""
+        ),
+        amount: moneyToNumber(
+          getField(f, connection.transfersColumnMap, "Amount", 0)
+        ),
+        purpose: getField(f, connection.transfersColumnMap, "Purpose", ""),
+        inactive: Boolean(
+          getField(f, connection.transfersColumnMap, "Inactive", false)
+        ),
+      };
+    });
+
     setSavedSummary(loadedSummary);
     setRaffleData(groupedReceipts);
+    setCashSales(loadedCashSales);
+    setSpecialFundraisers(loadedSpecialFundraisers);
+    setTreasurerTransfers(loadedTransfers);
+
     setStatus("Loaded SharePoint data.");
   }
 
@@ -475,6 +578,99 @@ export default function App() {
     });
   }
 
+  function addCashSale() {
+    setCashSales((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        raffleNumber: "",
+        cashDate: formatDate(new Date()),
+        amount: "",
+        notes: "",
+        inactive: false,
+      },
+    ]);
+  }
+
+  function updateCashSale(id, field, value) {
+    setCashSales((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, [field]: value } : row))
+    );
+  }
+
+  function deleteCashSale(id) {
+    setCashSales((prev) => prev.filter((row) => row.id !== id));
+  }
+
+  function addSpecialFundraiser() {
+    setSpecialFundraisers((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        title: "",
+        fundraiserDate: formatDate(new Date()),
+        amountRaised: "",
+        expenses: "",
+        notes: "",
+        inactive: false,
+      },
+    ]);
+  }
+
+  function updateSpecialFundraiser(id, field, value) {
+    setSpecialFundraisers((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, [field]: value } : row))
+    );
+  }
+
+  function deleteSpecialFundraiser(id) {
+    setSpecialFundraisers((prev) => prev.filter((row) => row.id !== id));
+  }
+
+  function addTreasurerTransfer() {
+    setTreasurerTransfers((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        title: "Transfer to Checking",
+        transferDate: formatDate(new Date()),
+        amount: "",
+        purpose: "",
+        inactive: false,
+      },
+    ]);
+  }
+
+  function updateTreasurerTransfer(id, field, value) {
+    setTreasurerTransfers((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, [field]: value } : row))
+    );
+  }
+
+  function deleteTreasurerTransfer(id) {
+    setTreasurerTransfers((prev) => prev.filter((row) => row.id !== id));
+  }
+
+  const cashSalesByRaffle = useMemo(() => {
+    const grouped = {};
+
+    cashSales
+      .filter((sale) => !sale.inactive)
+      .forEach((sale) => {
+        const raffleNumber = cleanRaffleNumber(sale.raffleNumber);
+
+        if (!raffleNumber) return;
+
+        if (!grouped[raffleNumber]) {
+          grouped[raffleNumber] = 0;
+        }
+
+        grouped[raffleNumber] += moneyToNumber(sale.amount);
+      });
+
+    return grouped;
+  }, [cashSales]);
+
   const csvReport = useMemo(() => {
     const grouped = {};
 
@@ -585,6 +781,8 @@ export default function App() {
         ranFrom,
         ranUntil,
         monthsRan,
+        squareGrossSales: raffle.grossSales,
+        manualCashSales: 0,
         grossSales: raffle.grossSales,
         squareFees,
         receiptCost: 0,
@@ -602,6 +800,8 @@ export default function App() {
     savedSummary.forEach((raffle) => {
       mergedByRaffle[raffle.raffleNumber] = {
         ...raffle,
+        squareGrossSales: Number(raffle.grossSales || 0),
+        manualCashSales: 0,
       };
     });
 
@@ -623,8 +823,15 @@ export default function App() {
         const currentData = raffleData[raffle.raffleNumber] || {};
         const receipts = currentData.receipts || raffle.receipts || [];
 
+        const squareGrossSales = Number(
+          raffle.squareGrossSales ?? raffle.grossSales ?? 0
+        );
+        const manualCashSales = Number(
+          cashSalesByRaffle[raffle.raffleNumber] || 0
+        );
+        const grossSales = squareGrossSales + manualCashSales;
+
         const receiptCost = calculateReceiptCost(receipts);
-        const grossSales = Number(raffle.grossSales || 0);
         const squareFees = Number(raffle.squareFees || 0);
         const totalExpenses = squareFees + receiptCost;
         const netProfit = grossSales - totalExpenses;
@@ -634,6 +841,9 @@ export default function App() {
           stock: Number(currentData.stock ?? raffle.stock ?? 0),
           inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false),
           receipts,
+          squareGrossSales,
+          manualCashSales,
+          grossSales,
           receiptCost,
           totalExpenses,
           netProfit,
@@ -641,7 +851,7 @@ export default function App() {
         };
       })
       .sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
-  }, [csvReport, savedSummary, raffleData]);
+  }, [csvReport, savedSummary, raffleData, cashSalesByRaffle]);
 
   const printReport = useMemo(() => {
     return displayReport.filter((raffle) => {
@@ -661,10 +871,12 @@ export default function App() {
     });
   }, [displayReport]);
 
-  const totals = useMemo(() => {
+  const raffleTotals = useMemo(() => {
     return displayReport.reduce(
       (sum, raffle) => {
         sum.onlineSold += Number(raffle.onlineSold || 0);
+        sum.squareGrossSales += Number(raffle.squareGrossSales || 0);
+        sum.manualCashSales += Number(raffle.manualCashSales || 0);
         sum.grossSales += Number(raffle.grossSales || 0);
         sum.squareFees += Number(raffle.squareFees || 0);
         sum.receiptCost += Number(raffle.receiptCost || 0);
@@ -674,6 +886,8 @@ export default function App() {
       },
       {
         onlineSold: 0,
+        squareGrossSales: 0,
+        manualCashSales: 0,
         grossSales: 0,
         squareFees: 0,
         receiptCost: 0,
@@ -682,6 +896,50 @@ export default function App() {
       }
     );
   }, [displayReport]);
+
+  const specialFundraiserTotals = useMemo(() => {
+    return specialFundraisers
+      .filter((row) => !row.inactive)
+      .reduce(
+        (sum, row) => {
+          const amountRaised = moneyToNumber(row.amountRaised);
+          const expenses = moneyToNumber(row.expenses);
+
+          sum.amountRaised += amountRaised;
+          sum.expenses += expenses;
+          sum.net += amountRaised - expenses;
+
+          return sum;
+        },
+        {
+          amountRaised: 0,
+          expenses: 0,
+          net: 0,
+        }
+      );
+  }, [specialFundraisers]);
+
+  const transferTotals = useMemo(() => {
+    return treasurerTransfers
+      .filter((row) => !row.inactive)
+      .reduce(
+        (sum, row) => {
+          sum.amount += moneyToNumber(row.amount);
+          return sum;
+        },
+        {
+          amount: 0,
+        }
+      );
+  }, [treasurerTransfers]);
+
+  const finalNetRemaining = useMemo(() => {
+    return (
+      raffleTotals.netProfit +
+      specialFundraiserTotals.net -
+      transferTotals.amount
+    );
+  }, [raffleTotals.netProfit, specialFundraiserTotals.net, transferTotals.amount]);
 
   async function saveToSharePoint() {
     if (!sp) {
@@ -748,7 +1006,6 @@ export default function App() {
 
     try {
       setStatus("Clearing old SharePoint summary data...");
-
       await clearList(sp.siteId, sp.summaryListId);
 
       if (totalReceiptRows > 0) {
@@ -759,13 +1016,6 @@ export default function App() {
       setStatus("Saving summary to SharePoint...");
 
       for (const r of reportSnapshot) {
-        const receipts = r.receipts || [];
-        const receiptCost = calculateReceiptCost(receipts);
-        const grossSales = Number(r.grossSales || 0);
-        const squareFees = Number(r.squareFees || 0);
-        const totalExpenses = squareFees + receiptCost;
-        const netProfit = grossSales - totalExpenses;
-
         await createListItem(sp.siteId, sp.summaryListId, sp.summaryColumnMap, {
           Title: `Raffle #${r.raffleNumber}`,
           "Raffle Number": String(r.raffleNumber),
@@ -775,12 +1025,12 @@ export default function App() {
           "Ran From": r.ranFrom || null,
           "Ran Until": r.ranUntil || null,
           "Months Ran": r.monthsRan || "",
-          "Gross Sales": grossSales,
-          "Square Fees": squareFees,
-          "Receipt Cost": receiptCost,
-          "Total Expenses": totalExpenses,
-          "Net Profit": netProfit,
-          "Needs Receipt": receiptCost <= 0,
+          "Gross Sales": Number(r.grossSales || 0),
+          "Square Fees": Number(r.squareFees || 0),
+          "Receipt Cost": Number(r.receiptCost || 0),
+          "Total Expenses": Number(r.totalExpenses || 0),
+          "Net Profit": Number(r.netProfit || 0),
+          "Needs Receipt": Boolean(r.needsReceipts),
           Inactive: Boolean(r.inactive),
         });
       }
@@ -815,6 +1065,87 @@ export default function App() {
         }
       }
 
+      if (sp.cashSalesListId) {
+        setStatus("Saving manual cash raffle sales to SharePoint...");
+        await clearList(sp.siteId, sp.cashSalesListId);
+
+        for (const sale of cashSales) {
+          const amount = moneyToNumber(sale.amount);
+
+          if (!sale.raffleNumber && amount === 0 && !sale.notes) {
+            continue;
+          }
+
+          await createListItem(
+            sp.siteId,
+            sp.cashSalesListId,
+            sp.cashSalesColumnMap,
+            {
+              Title: `Raffle #${cleanRaffleNumber(sale.raffleNumber)} Cash Sale`,
+              "Raffle Number": cleanRaffleNumber(sale.raffleNumber),
+              "Cash Date": sale.cashDate || null,
+              Amount: amount,
+              Notes: sale.notes || "",
+              Inactive: Boolean(sale.inactive),
+            }
+          );
+        }
+      }
+
+      if (sp.specialFundraisersListId) {
+        setStatus("Saving special fundraisers to SharePoint...");
+        await clearList(sp.siteId, sp.specialFundraisersListId);
+
+        for (const fundraiser of specialFundraisers) {
+          const amountRaised = moneyToNumber(fundraiser.amountRaised);
+          const expenses = moneyToNumber(fundraiser.expenses);
+
+          if (!fundraiser.title && amountRaised === 0 && expenses === 0) {
+            continue;
+          }
+
+          await createListItem(
+            sp.siteId,
+            sp.specialFundraisersListId,
+            sp.specialFundraisersColumnMap,
+            {
+              Title: fundraiser.title || "Special Fundraiser",
+              "Fundraiser Date": fundraiser.fundraiserDate || null,
+              "Amount Raised": amountRaised,
+              Expenses: expenses,
+              Notes: fundraiser.notes || "",
+              Inactive: Boolean(fundraiser.inactive),
+            }
+          );
+        }
+      }
+
+      if (sp.transfersListId) {
+        setStatus("Saving treasurer transfers to SharePoint...");
+        await clearList(sp.siteId, sp.transfersListId);
+
+        for (const transfer of treasurerTransfers) {
+          const amount = moneyToNumber(transfer.amount);
+
+          if (!transfer.title && amount === 0 && !transfer.purpose) {
+            continue;
+          }
+
+          await createListItem(
+            sp.siteId,
+            sp.transfersListId,
+            sp.transfersColumnMap,
+            {
+              Title: transfer.title || "Transfer to Checking",
+              "Transfer Date": transfer.transferDate || null,
+              Amount: amount,
+              Purpose: transfer.purpose || "",
+              Inactive: Boolean(transfer.inactive),
+            }
+          );
+        }
+      }
+
       setRows([]);
       setUploadedFiles([]);
       setStatus("Saved to SharePoint.");
@@ -834,8 +1165,8 @@ export default function App() {
         <p className="eyebrow">SharePoint Raffle Reporting</p>
         <h1>Raffle Cost Breakout Report</h1>
         <p>
-          Upload Square CSV files, enter receipt costs, mark raffles active or
-          inactive, and save the raffle report to SharePoint.
+          Upload Square CSV files, enter receipt costs, manual cash sales,
+          special fundraisers, and treasurer transfers.
         </p>
       </header>
 
@@ -880,24 +1211,47 @@ export default function App() {
         <>
           <section className="summary-grid">
             <div className="summary-card">
-              <span>Total Sold</span>
-              <strong>{totals.onlineSold}</strong>
+              <span>Square Gross Sales</span>
+              <strong>{formatMoney(raffleTotals.squareGrossSales)}</strong>
             </div>
             <div className="summary-card">
-              <span>Gross Sales</span>
-              <strong>{formatMoney(totals.grossSales)}</strong>
+              <span>Manual Cash Sales</span>
+              <strong>{formatMoney(raffleTotals.manualCashSales)}</strong>
             </div>
             <div className="summary-card">
-              <span>Square Fees</span>
-              <strong>{formatMoney(totals.squareFees)}</strong>
+              <span>Total Raffle Sales</span>
+              <strong>{formatMoney(raffleTotals.grossSales)}</strong>
             </div>
             <div className="summary-card">
-              <span>Receipt Cost</span>
-              <strong>{formatMoney(totals.receiptCost)}</strong>
+              <span>Raffle Expenses</span>
+              <strong>{formatMoney(raffleTotals.totalExpenses)}</strong>
             </div>
             <div className="summary-card profit-card">
-              <span>Net Profit</span>
-              <strong>{formatMoney(totals.netProfit)}</strong>
+              <span>Raffle Net Profit</span>
+              <strong>{formatMoney(raffleTotals.netProfit)}</strong>
+            </div>
+          </section>
+
+          <section className="summary-grid">
+            <div className="summary-card">
+              <span>Special Raised</span>
+              <strong>{formatMoney(specialFundraiserTotals.amountRaised)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Special Expenses</span>
+              <strong>{formatMoney(specialFundraiserTotals.expenses)}</strong>
+            </div>
+            <div className="summary-card profit-card">
+              <span>Special Net</span>
+              <strong>{formatMoney(specialFundraiserTotals.net)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Treasurer Transfers</span>
+              <strong>{formatMoney(transferTotals.amount)}</strong>
+            </div>
+            <div className="summary-card profit-card">
+              <span>Final Net Remaining</span>
+              <strong>{formatMoney(finalNetRemaining)}</strong>
             </div>
           </section>
 
@@ -912,11 +1266,9 @@ export default function App() {
                     <th className="no-print">Status</th>
                     <th>Prize</th>
                     <th>Online Sold</th>
-                    <th className="no-print">Stock</th>
-                    <th>Ran From</th>
-                    <th>Ran Until</th>
-                    <th>Months Ran</th>
-                    <th>Gross Sales</th>
+                    <th>Square Sales</th>
+                    <th>Cash Sales</th>
+                    <th>Total Sales</th>
                     <th>Square Fees</th>
                     <th>Receipt Cost</th>
                     <th>Total Expenses</th>
@@ -956,27 +1308,8 @@ export default function App() {
                       </td>
 
                       <td>{r.onlineSold}</td>
-
-                      <td className="edit-cell no-print">
-                        <input
-                          type="number"
-                          value={
-                            raffleData[r.raffleNumber]?.stock ?? r.stock ?? ""
-                          }
-                          onChange={(e) =>
-                            updateRaffleField(
-                              r.raffleNumber,
-                              "stock",
-                              e.target.value
-                            )
-                          }
-                          placeholder="0"
-                        />
-                      </td>
-
-                      <td>{formatDisplayDate(r.ranFrom)}</td>
-                      <td>{formatDisplayDate(r.ranUntil)}</td>
-                      <td>{r.monthsRan}</td>
+                      <td>{formatMoney(r.squareGrossSales)}</td>
+                      <td>{formatMoney(r.manualCashSales)}</td>
                       <td>{formatMoney(r.grossSales)}</td>
                       <td>{formatMoney(r.squareFees)}</td>
                       <td>{formatMoney(r.receiptCost)}</td>
@@ -1001,16 +1334,14 @@ export default function App() {
                 <tfoot>
                   <tr>
                     <td colSpan="3">TOTALS</td>
-                    <td>{totals.onlineSold}</td>
-                    <td className="no-print"></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td>{formatMoney(totals.grossSales)}</td>
-                    <td>{formatMoney(totals.squareFees)}</td>
-                    <td>{formatMoney(totals.receiptCost)}</td>
-                    <td>{formatMoney(totals.totalExpenses)}</td>
-                    <td>{formatMoney(totals.netProfit)}</td>
+                    <td>{raffleTotals.onlineSold}</td>
+                    <td>{formatMoney(raffleTotals.squareGrossSales)}</td>
+                    <td>{formatMoney(raffleTotals.manualCashSales)}</td>
+                    <td>{formatMoney(raffleTotals.grossSales)}</td>
+                    <td>{formatMoney(raffleTotals.squareFees)}</td>
+                    <td>{formatMoney(raffleTotals.receiptCost)}</td>
+                    <td>{formatMoney(raffleTotals.totalExpenses)}</td>
+                    <td>{formatMoney(raffleTotals.netProfit)}</td>
                     <td className="no-print"></td>
                   </tr>
                 </tfoot>
@@ -1034,11 +1365,9 @@ export default function App() {
                     <th>Status</th>
                     <th>Prize</th>
                     <th>Online Sold</th>
-                    <th>Stock</th>
-                    <th>Ran From</th>
-                    <th>Ran Until</th>
-                    <th>Months Ran</th>
-                    <th>Gross Sales</th>
+                    <th>Square Sales</th>
+                    <th>Cash Sales</th>
+                    <th>Total Sales</th>
                     <th>Square Fees</th>
                     <th>Receipt Cost</th>
                     <th>Total Expenses</th>
@@ -1058,10 +1387,8 @@ export default function App() {
                         )}
                       </td>
                       <td>{r.onlineSold}</td>
-                      <td>{r.stock}</td>
-                      <td>{formatDisplayDate(r.ranFrom)}</td>
-                      <td>{formatDisplayDate(r.ranUntil)}</td>
-                      <td>{r.monthsRan}</td>
+                      <td>{formatMoney(r.squareGrossSales)}</td>
+                      <td>{formatMoney(r.manualCashSales)}</td>
                       <td>{formatMoney(r.grossSales)}</td>
                       <td>{formatMoney(r.squareFees)}</td>
                       <td>{formatMoney(r.receiptCost)}</td>
@@ -1078,7 +1405,7 @@ export default function App() {
 
                   {printReport.length === 0 && (
                     <tr>
-                      <td colSpan="13">No raffles found for this print rule.</td>
+                      <td colSpan="11">No raffles found for this print rule.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1178,6 +1505,222 @@ export default function App() {
                 </div>
               );
             })}
+          </section>
+
+          <section className="report-card no-print">
+            <div className="receipt-header">
+              <div>
+                <h2>Manual Cash Raffle Sales</h2>
+                <p>Cash ticket sales that were not included in Square.</p>
+              </div>
+              <button onClick={addCashSale}>Add Cash Sale</button>
+            </div>
+
+            <div className="receipt-list">
+              {cashSales.map((sale) => (
+                <div className="manual-row" key={sale.id}>
+                  <input
+                    type="text"
+                    placeholder="Raffle #"
+                    value={sale.raffleNumber}
+                    onChange={(e) =>
+                      updateCashSale(sale.id, "raffleNumber", e.target.value)
+                    }
+                  />
+
+                  <input
+                    type="date"
+                    value={sale.cashDate}
+                    onChange={(e) =>
+                      updateCashSale(sale.id, "cashDate", e.target.value)
+                    }
+                  />
+
+                  <input
+                    type="number"
+                    placeholder="Amount"
+                    value={sale.amount}
+                    onChange={(e) =>
+                      updateCashSale(sale.id, "amount", e.target.value)
+                    }
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Notes"
+                    value={sale.notes}
+                    onChange={(e) =>
+                      updateCashSale(sale.id, "notes", e.target.value)
+                    }
+                  />
+
+                  <button className="danger" onClick={() => deleteCashSale(sale.id)}>
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="report-card no-print">
+            <div className="receipt-header">
+              <div>
+                <h2>Special Fundraisers</h2>
+                <p>Chili Cook Off, popcorn donations, Festival of Lights, etc.</p>
+              </div>
+              <button onClick={addSpecialFundraiser}>Add Fundraiser</button>
+            </div>
+
+            <div className="receipt-list">
+              {specialFundraisers.map((fundraiser) => (
+                <div className="manual-row six-col" key={fundraiser.id}>
+                  <input
+                    type="text"
+                    placeholder="Fundraiser Name"
+                    value={fundraiser.title}
+                    onChange={(e) =>
+                      updateSpecialFundraiser(
+                        fundraiser.id,
+                        "title",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <input
+                    type="date"
+                    value={fundraiser.fundraiserDate}
+                    onChange={(e) =>
+                      updateSpecialFundraiser(
+                        fundraiser.id,
+                        "fundraiserDate",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <input
+                    type="number"
+                    placeholder="Amount Raised"
+                    value={fundraiser.amountRaised}
+                    onChange={(e) =>
+                      updateSpecialFundraiser(
+                        fundraiser.id,
+                        "amountRaised",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <input
+                    type="number"
+                    placeholder="Expenses"
+                    value={fundraiser.expenses}
+                    onChange={(e) =>
+                      updateSpecialFundraiser(
+                        fundraiser.id,
+                        "expenses",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Notes"
+                    value={fundraiser.notes}
+                    onChange={(e) =>
+                      updateSpecialFundraiser(
+                        fundraiser.id,
+                        "notes",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <button
+                    className="danger"
+                    onClick={() => deleteSpecialFundraiser(fundraiser.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="report-card no-print">
+            <div className="receipt-header">
+              <div>
+                <h2>Treasurer Transfers</h2>
+                <p>Money moved out of fundraising net for a stated purpose.</p>
+              </div>
+              <button onClick={addTreasurerTransfer}>Add Transfer</button>
+            </div>
+
+            <div className="receipt-list">
+              {treasurerTransfers.map((transfer) => (
+                <div className="manual-row" key={transfer.id}>
+                  <input
+                    type="text"
+                    placeholder="Title"
+                    value={transfer.title}
+                    onChange={(e) =>
+                      updateTreasurerTransfer(
+                        transfer.id,
+                        "title",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <input
+                    type="date"
+                    value={transfer.transferDate}
+                    onChange={(e) =>
+                      updateTreasurerTransfer(
+                        transfer.id,
+                        "transferDate",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <input
+                    type="number"
+                    placeholder="Amount"
+                    value={transfer.amount}
+                    onChange={(e) =>
+                      updateTreasurerTransfer(
+                        transfer.id,
+                        "amount",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Purpose"
+                    value={transfer.purpose}
+                    onChange={(e) =>
+                      updateTreasurerTransfer(
+                        transfer.id,
+                        "purpose",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                  <button
+                    className="danger"
+                    onClick={() => deleteTreasurerTransfer(transfer.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
           </section>
         </>
       )}
