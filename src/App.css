@@ -84,8 +84,7 @@ button,
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease,
-    box-shadow 0.15s ease;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   box-shadow: 0 4px 12px rgba(15, 95, 140, 0.25);
 }
 
@@ -126,18 +125,17 @@ button:active,
   color: #0b3551;
 }
 
-.uploaded-files p {
-  margin: 6px 0;
-  color: #334155;
+.uploaded-files p,
+.empty p,
+.receipt-header p {
+  color: #475569;
 }
 
-.empty h2 {
+.empty h2,
+.report-card h2,
+.receipt-header h3 {
   margin-top: 0;
   color: #0b3551;
-}
-
-.empty p {
-  color: #334155;
 }
 
 .summary-grid {
@@ -176,11 +174,6 @@ button:active,
   border-color: #bbf7d0;
 }
 
-.report-card h2 {
-  margin: 0 0 16px;
-  color: #0b3551;
-}
-
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -188,7 +181,7 @@ button:active,
 
 table {
   width: 100%;
-  min-width: 1300px;
+  min-width: 1250px;
   border-collapse: collapse;
   background: #ffffff;
 }
@@ -222,13 +215,6 @@ tfoot td {
   background: #eef6fb;
   font-weight: 800;
   border-top: 2px solid #0b3551;
-}
-
-.edit-cell input {
-  width: 90px;
-  padding: 8px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
 }
 
 .profit {
@@ -268,16 +254,6 @@ tfoot td {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
-}
-
-.receipt-header h3 {
-  margin: 0;
-  color: #0b3551;
-}
-
-.receipt-header p {
-  margin: 4px 0 0;
-  color: #475569;
 }
 
 .receipt-list {
@@ -364,6 +340,10 @@ tfoot td {
   margin: 0 0 16px;
   font-size: 13px;
   color: #475569;
+}
+
+.print-subheading {
+  margin-top: 18px !important;
 }
 
 @media (max-width: 1000px) {

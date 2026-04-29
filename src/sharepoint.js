@@ -138,16 +138,6 @@ export async function getListId(siteId, listName) {
   return list.id;
 }
 
-export async function getOptionalListId(siteId, listName) {
-  const lists = await graphFetch(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/lists?$select=id,displayName`
-  );
-
-  const list = lists.value.find((item) => item.displayName === listName);
-
-  return list?.id || null;
-}
-
 export async function getColumnMap(siteId, listId) {
   const columns = await graphFetch(
     `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/columns?$select=name,displayName`
@@ -226,31 +216,24 @@ export async function connectSharePoint() {
 
   const summaryListId = await getListId(siteId, SUMMARY_LIST_NAME);
   const receiptsListId = await getListId(siteId, RECEIPTS_LIST_NAME);
-
-  const cashSalesListId = await getOptionalListId(siteId, CASH_SALES_LIST_NAME);
-  const specialFundraisersListId = await getOptionalListId(
+  const cashSalesListId = await getListId(siteId, CASH_SALES_LIST_NAME);
+  const specialFundraisersListId = await getListId(
     siteId,
     SPECIAL_FUNDRAISERS_LIST_NAME
   );
-  const transfersListId = await getOptionalListId(
+  const transfersListId = await getListId(
     siteId,
     TREASURER_TRANSFERS_LIST_NAME
   );
 
   const summaryColumnMap = await getColumnMap(siteId, summaryListId);
   const receiptsColumnMap = await getColumnMap(siteId, receiptsListId);
-
-  const cashSalesColumnMap = cashSalesListId
-    ? await getColumnMap(siteId, cashSalesListId)
-    : {};
-
-  const specialFundraisersColumnMap = specialFundraisersListId
-    ? await getColumnMap(siteId, specialFundraisersListId)
-    : {};
-
-  const transfersColumnMap = transfersListId
-    ? await getColumnMap(siteId, transfersListId)
-    : {};
+  const cashSalesColumnMap = await getColumnMap(siteId, cashSalesListId);
+  const specialFundraisersColumnMap = await getColumnMap(
+    siteId,
+    specialFundraisersListId
+  );
+  const transfersColumnMap = await getColumnMap(siteId, transfersListId);
 
   return {
     siteId,
