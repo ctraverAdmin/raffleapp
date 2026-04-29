@@ -708,11 +708,7 @@ grossSales: moneyToNumber(
               </table>
             </div>
 
-            <h2 className="print-subheading">Special Fundraisers for {getLastMonthLabel()}</h2>
-            <div className="table-wrap"><table><thead><tr><th>Fundraiser</th><th>Date</th><th>Amount Raised</th><th>Expenses</th><th>Net Added</th><th>Notes</th></tr></thead><tbody>{printSpecialFundraisers.map((f) => { const raised = moneyToNumber(f.amountRaised); const expenses = moneyToNumber(f.expenses); const net = raised - expenses; return <tr key={`print-fundraiser-${f.id}`}><td>{f.title}</td><td>{formatDisplayDate(f.fundraiserDate)}</td><td>{formatMoney(raised)}</td><td>{formatMoney(expenses)}</td><td className={net >= 0 ? "profit strong" : "loss strong"}>{formatMoney(net)}</td><td>{f.notes}</td></tr>; })}{printSpecialFundraisers.length === 0 && <tr><td colSpan="6">No special fundraisers found for {getLastMonthLabel()}.</td></tr>}</tbody></table></div>
-
-            <h2 className="print-subheading">Treasurer Transfers for {getLastMonthLabel()}</h2>
-            <div className="table-wrap"><table><thead><tr><th>Transfer</th><th>Date</th><th>Amount</th><th>Purpose</th></tr></thead><tbody>{printTreasurerTransfers.map((t) => <tr key={`print-transfer-${t.id}`}><td>{t.title}</td><td>{formatDisplayDate(t.transferDate)}</td><td>{formatMoney(t.amount)}</td><td>{t.purpose}</td></tr>)}{printTreasurerTransfers.length === 0 && <tr><td colSpan="4">No treasurer transfers found for {getLastMonthLabel()}.</td></tr>}</tbody></table></div>
+         
           </section>
 
           <section className="report-card no-print">
