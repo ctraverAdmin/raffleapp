@@ -152,7 +152,7 @@ function isRaffleInReportMonthRange(raffle) {
 
 function isDateInLastMonth(dateValue) {
   if (!dateValue) return false;
-  const { start, end } = getLastMonthRange();
+  const { start, end } = getReportMonthRange();
   const date = new Date(dateValue);
   if (isNaN(date)) return false;
   return date >= start && date <= end;
@@ -718,7 +718,7 @@ grossSales: moneyToNumber(
 
           <section className="report-card print-only">
             <h2>Raffle Detail for {getReportMonthLabel()}</h2>
-            <p className="print-note">Grand totals above include all raffles and all months. Detail below includes active and inactive raffles from {getLastMonthLabel()}.</p>
+            <p className="print-note">Grand totals above include all raffles and all months. Detail below includes active and inactive raffles from {getReportMonthLabel()}.</p>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Raffle #</th><th>Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th></tr></thead>
@@ -726,7 +726,7 @@ grossSales: moneyToNumber(
                   {printReport.map((r) => (
                     <tr key={`print-${r.raffleNumber}`}><td>#{r.raffleNumber}</td><td>{r.inactive ? "Inactive" : "Active"}</td><td><strong>{r.prize}</strong>{r.needsReceipts && <div className="receipt-warning">Needs Review</div>}</td><td>{r.onlineSold}</td><td>{formatMoney(r.squareGrossSales)}</td><td>{formatMoney(r.manualCashSales)}</td><td>{formatMoney(r.grossSales)}</td><td>{formatMoney(r.squareFees)}</td><td>{formatMoney(r.receiptCost)}</td><td>{formatMoney(r.totalExpenses)}</td><td className={r.netProfit >= 0 ? "profit strong" : "loss strong"}>{formatMoney(r.netProfit)}</td></tr>
                   ))}
-                  {printReport.length === 0 && <tr><td colSpan="11">No raffles found for {getLastMonthLabel()}.</td></tr>}
+                  {printReport.length === 0 && <tr><td colSpan="11">No raffles found for {getReportMonthLabel()}.</td></tr>}
                 </tbody>
               </table>
             </div>
