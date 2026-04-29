@@ -137,30 +137,36 @@ function makeRowKey(row) {
   ].join("|");
 }
 
-function getLastQuarterRange() {
+function getCurrentYearRange() {
   const today = new Date();
-  const currentQuarter = Math.floor(today.getMonth() / 3);
+  const year = today.getFullYear();
 
-  let lastQuarter;
-  let year = today.getFullYear();
+  return {
+    start: new Date(year, 0, 1),
+    end: new Date(year, 11, 31, 23, 59, 59, 999),
+    year,
+  };
+}
 
-  if (currentQuarter === 0) {
-    lastQuarter = 3;
-    year -= 1;
-  } else {
-    lastQuarter = currentQuarter - 1;
-  }
+function getCurrentAndPreviousMonthRange() {
+  const today = new Date();
 
-  const startMonth = lastQuarter * 3;
-  const start = new Date(year, startMonth, 1);
-  const end = new Date(year, startMonth + 3, 0);
+  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+
+  const end = new Date(
+    today.getFullYear(),
+    today.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999
+  );
 
   return { start, end };
 }
 
-function isRaffleInLastQuarter(raffle) {
-  const { start, end } = getLastQuarterRange();
-
+function raffleOverlapsDateRange(raffle, start, end) {
   const ranFrom = raffle.ranFrom ? new Date(raffle.ranFrom) : null;
   const ranUntil = raffle.ranUntil ? new Date(raffle.ranUntil) : null;
 
@@ -175,12 +181,19 @@ function isRaffleInLastQuarter(raffle) {
   return raffleStart <= end && raffleEnd >= start;
 }
 
-function getLastQuarterLabel() {
-  const { start, end } = getLastQuarterRange();
+function isRaffleInCurrentYear(raffle) {
+  const { start, end } = getCurrentYearRange();
+  return raffleOverlapsDateRange(raffle, start, end);
+}
 
-  return `${start.toLocaleDateString("en-US")} - ${end.toLocaleDateString(
-    "en-US"
-  )}`;
+function isRaffleInCurrentOrPreviousMonth(raffle) {
+  const { start, end } = getCurrentAndPreviousMonthRange();
+  return raffleOverlapsDateRange(raffle, start, end);
+}
+
+function getCurrentYearLabel() {
+  const { year } = getCurrentYearRange();
+  return String(year);
 }
 
 export default function App() {
@@ -598,12 +611,10 @@ export default function App() {
       mergedByRaffle[raffle.raffleNumber] = {
         ...existing,
         ...raffle,
-
         prize: raffle.prize || existing.prize || "",
         stock: existing.stock ?? raffle.stock ?? 0,
         inactive: existing.inactive ?? raffle.inactive ?? false,
 
-        // This is the important part:
         // Do not lose already-entered receipts when new Square data is uploaded.
         receipts: existing.receipts || raffle.receipts || [],
       };
@@ -635,7 +646,21 @@ export default function App() {
   }, [csvReport, savedSummary, raffleData]);
 
   const printReport = useMemo(() => {
-    return displayReport.filter((raffle) => isRaffleInLastQuarter(raffle));
+    return displayReport.filter((raffle) => {
+      const isCurrentYear = isRaffleInCurrentYear(raffle);
+      const isInactive = Boolean(raffle.inactive);
+      const isCurrentOrPreviousMonth = isRaffleInCurrentOrPreviousMonth(raffle);
+
+      if (!isCurrentYear) {
+        return false;
+      }
+
+      if (!isInactive) {
+        return true;
+      }
+
+      return isCurrentOrPreviousMonth;
+    });
   }, [displayReport]);
 
   const totals = useMemo(() => {
@@ -836,10 +861,10 @@ export default function App() {
                 <thead>
                   <tr>
                     <th>Raffle #</th>
-                    <th>Status</th>
+                    <th className="no-print">Status</th>
                     <th>Prize</th>
                     <th>Online Sold</th>
-                    <th>Stock</th>
+                    <th className="no-print">Stock</th>
                     <th>Ran From</th>
                     <th>Ran Until</th>
                     <th>Months Ran</th>
@@ -929,7 +954,7 @@ export default function App() {
                   <tr>
                     <td colSpan="3">TOTALS</td>
                     <td>{totals.onlineSold}</td>
-                    <td></td>
+                    <td className="no-print"></td>
                     <td></td>
                     <td></td>
                     <td></td>
@@ -946,11 +971,11 @@ export default function App() {
           </section>
 
           <section className="report-card print-only">
-            <h2>Last Quarter Raffle Detail</h2>
+            <h2>Current Year Raffle Detail</h2>
             <p className="print-note">
               Grand totals above include all raffles and all months. Detail
-              below includes active and inactive raffles from last quarter:{" "}
-              {getLastQuarterLabel()}.
+              below includes active raffles from {getCurrentYearLabel()} and
+              inactive raffles from the current or previous month.
             </p>
 
             <div className="table-wrap">
@@ -1005,9 +1030,7 @@ export default function App() {
 
                   {printReport.length === 0 && (
                     <tr>
-                      <td colSpan="13">
-                        No raffles found for last quarter.
-                      </td>
+                      <td colSpan="13">No raffles found for this print rule.</td>
                     </tr>
                   )}
                 </tbody>
