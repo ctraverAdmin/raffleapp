@@ -537,7 +537,7 @@ export default function App() {
           "Ran From": r.ranFrom || null,
           "Ran Until": r.ranUntil || null,
           "Months Ran": r.monthsRan || "",
-          "Gross Sales": Number(r.grossSales || 0),
+          "Gross Sales": Number(r.squareGrossSales || 0),
           "Square Fees": Number(r.squareFees || 0),
           "Receipt Cost": Number(r.receiptCost || 0),
           "Total Expenses": Number(r.totalExpenses || 0),
