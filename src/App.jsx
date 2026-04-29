@@ -101,17 +101,37 @@ function makeRowKey(row) {
   ].join("|");
 }
 
-function getLastMonthRange() {
+function getReportMonthRange() {
   const today = new Date();
+
   return {
     start: new Date(today.getFullYear(), today.getMonth() - 1, 1),
-    end: new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999),
+    end: new Date(
+      today.getFullYear(),
+      today.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999
+    ),
   };
 }
 
-function getLastMonthLabel() {
-  const { start } = getLastMonthRange();
-  return start.toLocaleString("en-US", { month: "long", year: "numeric" });
+function getReportMonthLabel() {
+  const { start, end } = getReportMonthRange();
+
+  const startLabel = start.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+
+  const endLabel = end.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+
+  return `${startLabel} through ${endLabel}`;
 }
 
 function overlapsDateRange(startValue, endValue, rangeStart, rangeEnd) {
@@ -125,8 +145,8 @@ function overlapsDateRange(startValue, endValue, rangeStart, rangeEnd) {
   return itemStart <= rangeEnd && itemEnd >= rangeStart;
 }
 
-function isRaffleInLastMonth(raffle) {
-  const { start, end } = getLastMonthRange();
+function isRaffleInReportMonthRange(raffle) {
+  const { start, end } = getReportMonthRange();
   return overlapsDateRange(raffle.ranFrom, raffle.ranUntil, start, end);
 }
 
@@ -450,7 +470,10 @@ grossSales: moneyToNumber(
     }).sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
   }, [csvReport, savedSummary, raffleData, cashSalesByRaffle]);
 
-  const printReport = useMemo(() => displayReport.filter((raffle) => isRaffleInLastMonth(raffle)), [displayReport]);
+ const printReport = useMemo(
+  () => displayReport.filter((raffle) => isRaffleInReportMonthRange(raffle)),
+  [displayReport]
+);
 
   const printSpecialFundraisers = useMemo(() => specialFundraisers.filter((f) => !f.inactive && isDateInLastMonth(f.fundraiserDate)), [specialFundraisers]);
   const printTreasurerTransfers = useMemo(() => treasurerTransfers.filter((t) => !t.inactive && isDateInLastMonth(t.transferDate)), [treasurerTransfers]);
@@ -694,7 +717,7 @@ grossSales: moneyToNumber(
           </section>
 
           <section className="report-card print-only">
-            <h2>Raffle Detail for {getLastMonthLabel()}</h2>
+            <h2>Raffle Detail for {getReportMonthLabel()}</h2>
             <p className="print-note">Grand totals above include all raffles and all months. Detail below includes active and inactive raffles from {getLastMonthLabel()}.</p>
             <div className="table-wrap">
               <table>
