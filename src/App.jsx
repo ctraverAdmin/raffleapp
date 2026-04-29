@@ -192,7 +192,12 @@ export default function App() {
         ranFrom: getField(f, connection.summaryColumnMap, "Ran From", ""),
         ranUntil: getField(f, connection.summaryColumnMap, "Ran Until", ""),
         monthsRan: getField(f, connection.summaryColumnMap, "Months Ran", ""),
-        grossSales: moneyToNumber(getField(f, connection.summaryColumnMap, "Gross Sales", 0)),
+       squareGrossSales: moneyToNumber(
+  getField(f, connection.summaryColumnMap, "Gross Sales", 0)
+),
+grossSales: moneyToNumber(
+  getField(f, connection.summaryColumnMap, "Gross Sales", 0)
+),
         squareFees: moneyToNumber(getField(f, connection.summaryColumnMap, "Square Fees", 0)),
         receiptCost: moneyToNumber(getField(f, connection.summaryColumnMap, "Receipt Cost", 0)),
         totalExpenses: moneyToNumber(getField(f, connection.summaryColumnMap, "Total Expenses", 0)),
@@ -434,7 +439,7 @@ export default function App() {
     return Object.values(merged).map((raffle) => {
       const currentData = raffleData[raffle.raffleNumber] || {};
       const receipts = currentData.receipts || raffle.receipts || [];
-      const squareGrossSales = Number(raffle.squareGrossSales ?? raffle.grossSales ?? 0);
+      const squareGrossSales = Number(raffle.squareGrossSales || 0);
       const manualCashSales = Number(cashSalesByRaffle[raffle.raffleNumber] || 0);
       const grossSales = squareGrossSales + manualCashSales;
       const receiptCost = calculateReceiptCost(receipts);
