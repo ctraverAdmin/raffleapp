@@ -1350,7 +1350,7 @@ export default function App() {
           </section>
 
           <section className="report-card print-only">
-            <h2>Current Year Raffle Detail</h2>
+            <h2>Raffle Detail All Active and Inactive for last month</h2>
             <p className="print-note">
               Grand totals above include all raffles and all months. Detail
               below includes active raffles from {getCurrentYearLabel()} and
