@@ -614,8 +614,6 @@ export default function App() {
         prize: raffle.prize || existing.prize || "",
         stock: existing.stock ?? raffle.stock ?? 0,
         inactive: existing.inactive ?? raffle.inactive ?? false,
-
-        // Do not lose already-entered receipts when new Square data is uploaded.
         receipts: existing.receipts || raffle.receipts || [],
       };
     });
@@ -696,24 +694,72 @@ export default function App() {
       return;
     }
 
+    const reportSnapshot = displayReport.map((r) => {
+      const stateReceipts = raffleData[r.raffleNumber]?.receipts;
+      const reportReceipts = r.receipts;
+
+      const receiptsToKeep =
+        Array.isArray(stateReceipts) && stateReceipts.length > 0
+          ? stateReceipts
+          : Array.isArray(reportReceipts)
+          ? reportReceipts
+          : [];
+
+      const receiptCost = calculateReceiptCost(receiptsToKeep);
+      const grossSales = Number(r.grossSales || 0);
+      const squareFees = Number(r.squareFees || 0);
+      const totalExpenses = squareFees + receiptCost;
+      const netProfit = grossSales - totalExpenses;
+
+      return {
+        ...r,
+        receipts: receiptsToKeep,
+        receiptCost,
+        totalExpenses,
+        netProfit,
+        needsReceipts: receiptCost <= 0,
+      };
+    });
+
+    const totalReceiptRows = reportSnapshot.reduce(
+      (count, raffle) => count + (raffle.receipts?.length || 0),
+      0
+    );
+
+    const hadReceiptsBefore = Object.values(raffleData).some(
+      (raffle) => Array.isArray(raffle.receipts) && raffle.receipts.length > 0
+    );
+
+    if (hadReceiptsBefore && totalReceiptRows === 0) {
+      alert(
+        "Save stopped because no receipt rows were found in the app state. This would wipe out the SharePoint receipt list. Reconnect / Reload SharePoint and try again."
+      );
+      setStatus("Save stopped to protect existing receipts.");
+      return;
+    }
+
     if (
       !window.confirm(
-        "This will replace the current SharePoint raffle summary and receipts with what is on this screen. Continue?"
+        `This will replace the SharePoint raffle summary and rewrite ${totalReceiptRows} receipt row(s). Continue?`
       )
     ) {
       return;
     }
 
     try {
-      setStatus("Clearing old SharePoint list data...");
+      setStatus("Clearing old SharePoint summary data...");
 
       await clearList(sp.siteId, sp.summaryListId);
-      await clearList(sp.siteId, sp.receiptsListId);
+
+      if (totalReceiptRows > 0) {
+        setStatus("Clearing old SharePoint receipt data...");
+        await clearList(sp.siteId, sp.receiptsListId);
+      }
 
       setStatus("Saving summary to SharePoint...");
 
-      for (const r of displayReport) {
-        const receipts = raffleData[r.raffleNumber]?.receipts || r.receipts || [];
+      for (const r of reportSnapshot) {
+        const receipts = r.receipts || [];
         const receiptCost = calculateReceiptCost(receipts);
         const grossSales = Number(r.grossSales || 0);
         const squareFees = Number(r.squareFees || 0);
@@ -739,31 +785,33 @@ export default function App() {
         });
       }
 
-      setStatus("Saving receipts to SharePoint...");
+      if (totalReceiptRows > 0) {
+        setStatus("Saving receipts to SharePoint...");
 
-      for (const r of displayReport) {
-        const receipts = raffleData[r.raffleNumber]?.receipts || r.receipts || [];
+        for (const r of reportSnapshot) {
+          const receipts = r.receipts || [];
 
-        for (const receipt of receipts) {
-          const amount = moneyToNumber(receipt.amount);
+          for (const receipt of receipts) {
+            const amount = moneyToNumber(receipt.amount);
 
-          if (!receipt.vendor && !receipt.description && amount === 0) {
-            continue;
-          }
-
-          await createListItem(
-            sp.siteId,
-            sp.receiptsListId,
-            sp.receiptsColumnMap,
-            {
-              Title: `Raffle #${r.raffleNumber}`,
-              "Raffle Number": String(r.raffleNumber),
-              Prize: r.prize || "",
-              Vendor: receipt.vendor || "",
-              Description: receipt.description || "",
-              Amount: amount,
+            if (!receipt.vendor && !receipt.description && amount === 0) {
+              continue;
             }
-          );
+
+            await createListItem(
+              sp.siteId,
+              sp.receiptsListId,
+              sp.receiptsColumnMap,
+              {
+                Title: `Raffle #${r.raffleNumber}`,
+                "Raffle Number": String(r.raffleNumber),
+                Prize: r.prize || "",
+                Vendor: receipt.vendor || "",
+                Description: receipt.description || "",
+                Amount: amount,
+              }
+            );
+          }
         }
       }
 
