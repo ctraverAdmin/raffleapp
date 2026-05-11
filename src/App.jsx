@@ -1,9 +1,3 @@
-// Corrected App.jsx
-// Important correction:
-// - This keeps your original displayReport and raffleTotals math intact.
-// - The adjustment is applied only AFTER the normal totals are calculated.
-// - It does not change expenses, receipts, Square fees, or row-level raffle math.
-
 import { useMemo, useState } from "react";
 import Papa from "papaparse";
 import "./App.css";
@@ -174,7 +168,7 @@ export default function App() {
   const [raffleData, setRaffleData] = useState({});
   const [savedSummary, setSavedSummary] = useState([]);
   const [cashSales, setCashSales] = useState([]);
-  const [grossSalesAdjustment, setGrossSalesAdjustment] = useState("");
+  const [balanceAdjustment, setBalanceAdjustment] = useState("");
   const [specialFundraisers, setSpecialFundraisers] = useState([]);
   const [treasurerTransfers, setTreasurerTransfers] = useState([]);
   const [sp, setSp] = useState(null);
@@ -219,8 +213,12 @@ export default function App() {
         ranFrom: getField(f, connection.summaryColumnMap, "Ran From", ""),
         ranUntil: getField(f, connection.summaryColumnMap, "Ran Until", ""),
         monthsRan: getField(f, connection.summaryColumnMap, "Months Ran", ""),
-        squareGrossSales: moneyToNumber(getField(f, connection.summaryColumnMap, "Gross Sales", 0)),
-        grossSales: moneyToNumber(getField(f, connection.summaryColumnMap, "Gross Sales", 0)),
+       squareGrossSales: moneyToNumber(
+  getField(f, connection.summaryColumnMap, "Gross Sales", 0)
+),
+grossSales: moneyToNumber(
+  getField(f, connection.summaryColumnMap, "Gross Sales", 0)
+),
         squareFees: moneyToNumber(getField(f, connection.summaryColumnMap, "Square Fees", 0)),
         receiptCost: moneyToNumber(getField(f, connection.summaryColumnMap, "Receipt Cost", 0)),
         totalExpenses: moneyToNumber(getField(f, connection.summaryColumnMap, "Total Expenses", 0)),
@@ -291,7 +289,7 @@ export default function App() {
     setSavedSummary(loadedSummary);
     setRaffleData(groupedReceipts);
     setCashSales(loadedCashSales);
-    setGrossSalesAdjustment("");
+    setBalanceAdjustment("");
     setSpecialFundraisers(loadedSpecialFundraisers);
     setTreasurerTransfers(loadedTransfers);
     setStatus("Loaded SharePoint data.");
@@ -315,6 +313,10 @@ export default function App() {
       },
     });
     event.target.value = "";
+  }
+
+  function updateRaffleField(raffleNumber, field, value) {
+    setRaffleData((prev) => ({ ...prev, [raffleNumber]: { ...blankRaffleData(), ...(prev[raffleNumber] || {}), [field]: value } }));
   }
 
   function toggleInactive(raffleNumber) {
@@ -360,11 +362,9 @@ export default function App() {
   function addCashSale() {
     setCashSales((prev) => [...prev, { id: crypto.randomUUID(), raffleNumber: "", cashDate: formatDate(new Date()), amount: "", notes: "", inactive: false }]);
   }
-
   function updateCashSale(id, field, value) {
     setCashSales((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
   }
-
   function deleteCashSale(id) {
     setCashSales((prev) => prev.filter((row) => row.id !== id));
   }
@@ -372,11 +372,9 @@ export default function App() {
   function addSpecialFundraiser() {
     setSpecialFundraisers((prev) => [...prev, { id: crypto.randomUUID(), title: "", fundraiserDate: formatDate(new Date()), amountRaised: "", expenses: "", notes: "", inactive: false }]);
   }
-
   function updateSpecialFundraiser(id, field, value) {
     setSpecialFundraisers((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
   }
-
   function deleteSpecialFundraiser(id) {
     setSpecialFundraisers((prev) => prev.filter((row) => row.id !== id));
   }
@@ -384,11 +382,9 @@ export default function App() {
   function addTreasurerTransfer() {
     setTreasurerTransfers((prev) => [...prev, { id: crypto.randomUUID(), title: "Transfer to Checking", transferDate: formatDate(new Date()), amount: "", purpose: "", inactive: false }]);
   }
-
   function updateTreasurerTransfer(id, field, value) {
     setTreasurerTransfers((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
   }
-
   function deleteTreasurerTransfer(id) {
     setTreasurerTransfers((prev) => prev.filter((row) => row.id !== id));
   }
@@ -476,10 +472,10 @@ export default function App() {
     }).sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
   }, [csvReport, savedSummary, raffleData, cashSalesByRaffle]);
 
-  const printReport = useMemo(
-    () => displayReport.filter((raffle) => isRaffleInReportMonthRange(raffle)),
-    [displayReport]
-  );
+ const printReport = useMemo(
+  () => displayReport.filter((raffle) => isRaffleInReportMonthRange(raffle)),
+  [displayReport]
+);
 
   const printSpecialFundraisers = useMemo(() => specialFundraisers.filter((f) => !f.inactive && isDateInLastMonth(f.fundraiserDate)), [specialFundraisers]);
   const printTreasurerTransfers = useMemo(() => treasurerTransfers.filter((t) => !t.inactive && isDateInLastMonth(t.transferDate)), [treasurerTransfers]);
@@ -495,19 +491,20 @@ export default function App() {
       sum.totalExpenses += Number(r.totalExpenses || 0);
       sum.netProfit += Number(r.netProfit || 0);
       return sum;
-    }, { onlineSold: 0, squareGrossSales: 0, manualCashSales: 0, adjustmentAmount: 0, grossSales: 0, squareFees: 0, receiptCost: 0, totalExpenses: 0, netProfit: 0 });
+    }, { onlineSold: 0, squareGrossSales: 0, manualCashSales: 0, grossSales: 0, squareFees: 0, receiptCost: 0, totalExpenses: 0, netProfit: 0 });
   }, [displayReport]);
 
   const adjustedRaffleTotals = useMemo(() => {
-    const adjustmentAmount = moneyToNumber(grossSalesAdjustment);
+    const adjustment = moneyToNumber(balanceAdjustment);
+
     return {
       ...raffleTotals,
-      adjustmentAmount,
-      squareGrossSales: raffleTotals.squareGrossSales + adjustmentAmount,
-      grossSales: raffleTotals.grossSales + adjustmentAmount,
-      netProfit: raffleTotals.netProfit + adjustmentAmount,
+      balanceAdjustment: adjustment,
+      squareGrossSales: raffleTotals.squareGrossSales + adjustment,
+      grossSales: raffleTotals.grossSales + adjustment,
+      netProfit: raffleTotals.netProfit + adjustment,
     };
-  }, [raffleTotals, grossSalesAdjustment]);
+  }, [raffleTotals, balanceAdjustment]);
 
   const specialFundraiserTotals = useMemo(() => {
     return specialFundraisers.filter((r) => !r.inactive).reduce((sum, r) => {
@@ -698,16 +695,16 @@ export default function App() {
           <section className="report-card no-print">
             <div className="receipt-header">
               <div>
-                <h2>Gross Sales Adjustment</h2>
-                <p>This amount adds to Square Gross Sales, Total Sales, and Net Profit totals. It does not print as its own report field.</p>
+                <h2>Balance Adjustment</h2>
+                <p>This amount adds to the grand total lines for Square Gross Sales, Total Sales, and Raffle Net Profit only. It does not change receipts, expenses, Square fees, or individual raffle rows.</p>
               </div>
             </div>
             <div className="manual-row">
               <input
                 type="number"
-                placeholder="Adjustment Amount"
-                value={grossSalesAdjustment}
-                onChange={(e) => setGrossSalesAdjustment(e.target.value)}
+                placeholder="Balance Adjustment"
+                value={balanceAdjustment}
+                onChange={(e) => setBalanceAdjustment(e.target.value)}
               />
             </div>
           </section>
@@ -715,7 +712,7 @@ export default function App() {
           <section className="summary-grid">
             <div className="summary-card"><span>Square Gross Sales</span><strong>{formatMoney(adjustedRaffleTotals.squareGrossSales)}</strong></div>
             <div className="summary-card"><span>Manual Cash Sales</span><strong>{formatMoney(adjustedRaffleTotals.manualCashSales)}</strong></div>
-            <div className="summary-card no-print"><span>Hidden Adjustment</span><strong>{formatMoney(adjustedRaffleTotals.adjustmentAmount)}</strong></div>
+            <div className="summary-card no-print"><span>Balance Adjustment</span><strong>{formatMoney(adjustedRaffleTotals.balanceAdjustment)}</strong></div>
             <div className="summary-card"><span>Total Sales</span><strong>{formatMoney(adjustedRaffleTotals.grossSales)}</strong></div>
             <div className="summary-card"><span>Total Expenses</span><strong>{formatMoney(adjustedRaffleTotals.totalExpenses)}</strong></div>
             <div className="summary-card profit-card"><span>Raffle Net Profit</span><strong>{formatMoney(adjustedRaffleTotals.netProfit)}</strong></div>
@@ -763,6 +760,8 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+
+         
           </section>
 
           <section className="report-card no-print">
