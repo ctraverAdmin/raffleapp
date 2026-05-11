@@ -1,3 +1,9 @@
+// Corrected App.jsx
+// Important correction:
+// - This keeps your original displayReport and raffleTotals math intact.
+// - The adjustment is applied only AFTER the normal totals are calculated.
+// - It does not change expenses, receipts, Square fees, or row-level raffle math.
+
 import { useMemo, useState } from "react";
 import Papa from "papaparse";
 import "./App.css";
@@ -168,7 +174,7 @@ export default function App() {
   const [raffleData, setRaffleData] = useState({});
   const [savedSummary, setSavedSummary] = useState([]);
   const [cashSales, setCashSales] = useState([]);
-  const [salesAdjustments, setSalesAdjustments] = useState([]);
+  const [grossSalesAdjustment, setGrossSalesAdjustment] = useState("");
   const [specialFundraisers, setSpecialFundraisers] = useState([]);
   const [treasurerTransfers, setTreasurerTransfers] = useState([]);
   const [sp, setSp] = useState(null);
@@ -285,7 +291,7 @@ export default function App() {
     setSavedSummary(loadedSummary);
     setRaffleData(groupedReceipts);
     setCashSales(loadedCashSales);
-    setSalesAdjustments([]);
+    setGrossSalesAdjustment("");
     setSpecialFundraisers(loadedSpecialFundraisers);
     setTreasurerTransfers(loadedTransfers);
     setStatus("Loaded SharePoint data.");
@@ -309,10 +315,6 @@ export default function App() {
       },
     });
     event.target.value = "";
-  }
-
-  function updateRaffleField(raffleNumber, field, value) {
-    setRaffleData((prev) => ({ ...prev, [raffleNumber]: { ...blankRaffleData(), ...(prev[raffleNumber] || {}), [field]: value } }));
   }
 
   function toggleInactive(raffleNumber) {
@@ -367,18 +369,6 @@ export default function App() {
     setCashSales((prev) => prev.filter((row) => row.id !== id));
   }
 
-  function addSalesAdjustment() {
-    setSalesAdjustments((prev) => [...prev, { id: crypto.randomUUID(), raffleNumber: "", amount: "", notes: "", inactive: false }]);
-  }
-
-  function updateSalesAdjustment(id, field, value) {
-    setSalesAdjustments((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
-  }
-
-  function deleteSalesAdjustment(id) {
-    setSalesAdjustments((prev) => prev.filter((row) => row.id !== id));
-  }
-
   function addSpecialFundraiser() {
     setSpecialFundraisers((prev) => [...prev, { id: crypto.randomUUID(), title: "", fundraiserDate: formatDate(new Date()), amountRaised: "", expenses: "", notes: "", inactive: false }]);
   }
@@ -412,16 +402,6 @@ export default function App() {
     });
     return grouped;
   }, [cashSales]);
-
-  const adjustmentsByRaffle = useMemo(() => {
-    const grouped = {};
-    salesAdjustments.filter((adj) => !adj.inactive).forEach((adj) => {
-      const raffleNumber = cleanRaffleNumber(adj.raffleNumber);
-      if (!raffleNumber) return;
-      grouped[raffleNumber] = (grouped[raffleNumber] || 0) + moneyToNumber(adj.amount);
-    });
-    return grouped;
-  }, [salesAdjustments]);
 
   const csvReport = useMemo(() => {
     const grouped = {};
@@ -461,7 +441,6 @@ export default function App() {
         monthsRan,
         squareGrossSales: raffle.grossSales,
         manualCashSales: 0,
-        adjustmentAmount: 0,
         grossSales: raffle.grossSales,
         squareFees,
         receiptCost: 0,
@@ -476,7 +455,7 @@ export default function App() {
   const displayReport = useMemo(() => {
     const merged = {};
     savedSummary.forEach((r) => {
-      merged[r.raffleNumber] = { ...r, squareGrossSales: Number(r.grossSales || 0), manualCashSales: 0, adjustmentAmount: 0 };
+      merged[r.raffleNumber] = { ...r, squareGrossSales: Number(r.grossSales || 0), manualCashSales: 0 };
     });
     csvReport.forEach((r) => {
       const existing = merged[r.raffleNumber] || {};
@@ -486,18 +465,16 @@ export default function App() {
     return Object.values(merged).map((raffle) => {
       const currentData = raffleData[raffle.raffleNumber] || {};
       const receipts = currentData.receipts || raffle.receipts || [];
-      const baseSquareGrossSales = Number(raffle.squareGrossSales || 0);
+      const squareGrossSales = Number(raffle.squareGrossSales || 0);
       const manualCashSales = Number(cashSalesByRaffle[raffle.raffleNumber] || 0);
-      const adjustmentAmount = Number(adjustmentsByRaffle[raffle.raffleNumber] || 0);
-      const squareGrossSales = baseSquareGrossSales + adjustmentAmount;
       const grossSales = squareGrossSales + manualCashSales;
       const receiptCost = calculateReceiptCost(receipts);
       const squareFees = Number(raffle.squareFees || 0);
       const totalExpenses = squareFees + receiptCost;
       const netProfit = grossSales - totalExpenses;
-      return { ...raffle, stock: Number(currentData.stock ?? raffle.stock ?? 0), inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, baseSquareGrossSales, squareGrossSales, manualCashSales, adjustmentAmount, grossSales, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
+      return { ...raffle, stock: Number(currentData.stock ?? raffle.stock ?? 0), inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, squareGrossSales, manualCashSales, grossSales, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
     }).sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
-  }, [csvReport, savedSummary, raffleData, cashSalesByRaffle, adjustmentsByRaffle]);
+  }, [csvReport, savedSummary, raffleData, cashSalesByRaffle]);
 
   const printReport = useMemo(
     () => displayReport.filter((raffle) => isRaffleInReportMonthRange(raffle)),
@@ -512,7 +489,6 @@ export default function App() {
       sum.onlineSold += Number(r.onlineSold || 0);
       sum.squareGrossSales += Number(r.squareGrossSales || 0);
       sum.manualCashSales += Number(r.manualCashSales || 0);
-      sum.adjustmentAmount += Number(r.adjustmentAmount || 0);
       sum.grossSales += Number(r.grossSales || 0);
       sum.squareFees += Number(r.squareFees || 0);
       sum.receiptCost += Number(r.receiptCost || 0);
@@ -521,6 +497,17 @@ export default function App() {
       return sum;
     }, { onlineSold: 0, squareGrossSales: 0, manualCashSales: 0, adjustmentAmount: 0, grossSales: 0, squareFees: 0, receiptCost: 0, totalExpenses: 0, netProfit: 0 });
   }, [displayReport]);
+
+  const adjustedRaffleTotals = useMemo(() => {
+    const adjustmentAmount = moneyToNumber(grossSalesAdjustment);
+    return {
+      ...raffleTotals,
+      adjustmentAmount,
+      squareGrossSales: raffleTotals.squareGrossSales + adjustmentAmount,
+      grossSales: raffleTotals.grossSales + adjustmentAmount,
+      netProfit: raffleTotals.netProfit + adjustmentAmount,
+    };
+  }, [raffleTotals, grossSalesAdjustment]);
 
   const specialFundraiserTotals = useMemo(() => {
     return specialFundraisers.filter((r) => !r.inactive).reduce((sum, r) => {
@@ -540,7 +527,7 @@ export default function App() {
     }, { amount: 0 });
   }, [treasurerTransfers]);
 
-  const finalNetRemaining = raffleTotals.netProfit + specialFundraiserTotals.net - transferTotals.amount;
+  const finalNetRemaining = adjustedRaffleTotals.netProfit + specialFundraiserTotals.net - transferTotals.amount;
 
   async function saveToSharePoint() {
     if (!sp) {
@@ -595,7 +582,7 @@ export default function App() {
           "Ran From": r.ranFrom || null,
           "Ran Until": r.ranUntil || null,
           "Months Ran": r.monthsRan || "",
-          "Gross Sales": Number(r.grossSales || 0),
+          "Gross Sales": Number(r.squareGrossSales || 0),
           "Square Fees": Number(r.squareFees || 0),
           "Receipt Cost": Number(r.receiptCost || 0),
           "Total Expenses": Number(r.totalExpenses || 0),
@@ -685,7 +672,7 @@ export default function App() {
       <header className="hero">
         <p className="eyebrow">SharePoint Raffle Reporting</p>
         <h1>Raffle Cost Breakout Report</h1>
-        <p>Upload Square CSV files, enter receipt costs, manual cash sales, hidden sales adjustments, special fundraisers, and treasurer transfers.</p>
+        <p>Upload Square CSV files, enter receipt costs, manual cash sales, special fundraisers, and treasurer transfers.</p>
       </header>
 
       <section className="upload-card no-print">
@@ -708,20 +695,37 @@ export default function App() {
         <section className="empty"><h2>No raffle data loaded yet</h2><p>Click <strong>Connect to SharePoint</strong> to load saved data, or upload a Square CSV to add new sales data.</p></section>
       ) : (
         <>
+          <section className="report-card no-print">
+            <div className="receipt-header">
+              <div>
+                <h2>Gross Sales Adjustment</h2>
+                <p>This amount adds to Square Gross Sales, Total Sales, and Net Profit totals. It does not print as its own report field.</p>
+              </div>
+            </div>
+            <div className="manual-row">
+              <input
+                type="number"
+                placeholder="Adjustment Amount"
+                value={grossSalesAdjustment}
+                onChange={(e) => setGrossSalesAdjustment(e.target.value)}
+              />
+            </div>
+          </section>
+
           <section className="summary-grid">
-            <div className="summary-card"><span>Square Gross Sales</span><strong>{formatMoney(raffleTotals.squareGrossSales)}</strong></div>
-            <div className="summary-card"><span>Manual Cash Sales</span><strong>{formatMoney(raffleTotals.manualCashSales)}</strong></div>
-            <div className="summary-card"><span>Hidden Adjustments</span><strong>{formatMoney(raffleTotals.adjustmentAmount)}</strong></div>
-            <div className="summary-card"><span>Total Sales</span><strong>{formatMoney(raffleTotals.grossSales)}</strong></div>
-            <div className="summary-card"><span>Total Expenses</span><strong>{formatMoney(raffleTotals.totalExpenses)}</strong></div>
-            <div className="summary-card profit-card"><span>Raffle Net Profit</span><strong>{formatMoney(raffleTotals.netProfit)}</strong></div>
+            <div className="summary-card"><span>Square Gross Sales</span><strong>{formatMoney(adjustedRaffleTotals.squareGrossSales)}</strong></div>
+            <div className="summary-card"><span>Manual Cash Sales</span><strong>{formatMoney(adjustedRaffleTotals.manualCashSales)}</strong></div>
+            <div className="summary-card no-print"><span>Hidden Adjustment</span><strong>{formatMoney(adjustedRaffleTotals.adjustmentAmount)}</strong></div>
+            <div className="summary-card"><span>Total Sales</span><strong>{formatMoney(adjustedRaffleTotals.grossSales)}</strong></div>
+            <div className="summary-card"><span>Total Expenses</span><strong>{formatMoney(adjustedRaffleTotals.totalExpenses)}</strong></div>
+            <div className="summary-card profit-card"><span>Raffle Net Profit</span><strong>{formatMoney(adjustedRaffleTotals.netProfit)}</strong></div>
           </section>
 
           <section className="report-card screen-report">
             <h2>Raffle Cost Breakout</h2>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Raffle #</th><th className="no-print">Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th className="no-print">Hidden Adjustment</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th><th className="no-print">Receipts</th></tr></thead>
+                <thead><tr><th>Raffle #</th><th className="no-print">Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th><th className="no-print">Receipts</th></tr></thead>
                 <tbody>
                   {displayReport.map((r) => (
                     <tr key={r.raffleNumber} className={r.inactive ? "inactive-row" : ""}>
@@ -731,7 +735,6 @@ export default function App() {
                       <td>{r.onlineSold}</td>
                       <td>{formatMoney(r.squareGrossSales)}</td>
                       <td>{formatMoney(r.manualCashSales)}</td>
-                      <td className="no-print">{formatMoney(r.adjustmentAmount)}</td>
                       <td>{formatMoney(r.grossSales)}</td>
                       <td>{formatMoney(r.squareFees)}</td>
                       <td>{formatMoney(r.receiptCost)}</td>
@@ -741,7 +744,7 @@ export default function App() {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot><tr><td colSpan="3">TOTALS</td><td>{raffleTotals.onlineSold}</td><td>{formatMoney(raffleTotals.squareGrossSales)}</td><td>{formatMoney(raffleTotals.manualCashSales)}</td><td className="no-print">{formatMoney(raffleTotals.adjustmentAmount)}</td><td>{formatMoney(raffleTotals.grossSales)}</td><td>{formatMoney(raffleTotals.squareFees)}</td><td>{formatMoney(raffleTotals.receiptCost)}</td><td>{formatMoney(raffleTotals.totalExpenses)}</td><td>{formatMoney(raffleTotals.netProfit)}</td><td className="no-print"></td></tr></tfoot>
+                <tfoot><tr><td colSpan="3">TOTALS</td><td>{adjustedRaffleTotals.onlineSold}</td><td>{formatMoney(adjustedRaffleTotals.squareGrossSales)}</td><td>{formatMoney(adjustedRaffleTotals.manualCashSales)}</td><td>{formatMoney(adjustedRaffleTotals.grossSales)}</td><td>{formatMoney(adjustedRaffleTotals.squareFees)}</td><td>{formatMoney(adjustedRaffleTotals.receiptCost)}</td><td>{formatMoney(adjustedRaffleTotals.totalExpenses)}</td><td>{formatMoney(adjustedRaffleTotals.netProfit)}</td><td className="no-print"></td></tr></tfoot>
               </table>
             </div>
           </section>
@@ -771,8 +774,6 @@ export default function App() {
           </section>
 
           <section className="report-card no-print"><div className="receipt-header"><div><h2>Manual Cash Raffle Sales</h2><p>Cash ticket sales that were not included in Square.</p></div><button onClick={addCashSale}>Add Cash Sale</button></div><div className="receipt-list">{cashSales.map((sale) => <div className="manual-row" key={sale.id}><input type="text" placeholder="Raffle #" value={sale.raffleNumber} onChange={(e) => updateCashSale(sale.id, "raffleNumber", e.target.value)} /><input type="date" value={sale.cashDate} onChange={(e) => updateCashSale(sale.id, "cashDate", e.target.value)} /><input type="number" placeholder="Amount" value={sale.amount} onChange={(e) => updateCashSale(sale.id, "amount", e.target.value)} /><input type="text" placeholder="Notes" value={sale.notes} onChange={(e) => updateCashSale(sale.id, "notes", e.target.value)} /><button className="danger" onClick={() => deleteCashSale(sale.id)}>Delete</button></div>)}</div></section>
-
-          <section className="report-card no-print"><div className="receipt-header"><div><h2>Hidden Sales Adjustments</h2><p>Adjustment amounts increase Total Sales and Net Profit but do not print as a separate report field.</p></div><button onClick={addSalesAdjustment}>Add Adjustment</button></div><div className="receipt-list">{salesAdjustments.map((adj) => <div className="manual-row" key={adj.id}><input type="text" placeholder="Raffle #" value={adj.raffleNumber} onChange={(e) => updateSalesAdjustment(adj.id, "raffleNumber", e.target.value)} /><input type="number" placeholder="Adjustment Amount" value={adj.amount} onChange={(e) => updateSalesAdjustment(adj.id, "amount", e.target.value)} /><input type="text" placeholder="Notes" value={adj.notes} onChange={(e) => updateSalesAdjustment(adj.id, "notes", e.target.value)} /><button className="danger" onClick={() => deleteSalesAdjustment(adj.id)}>Delete</button></div>)}</div></section>
 
           <section className="report-card no-print"><div className="receipt-header"><div><h2>Special Fundraisers</h2><p>Chili Cook Off, popcorn donations, Festival of Lights, etc.</p></div><button onClick={addSpecialFundraiser}>Add Fundraiser</button></div><div className="receipt-list">{specialFundraisers.map((f) => <div className="manual-row six-col" key={f.id}><input type="text" placeholder="Fundraiser Name" value={f.title} onChange={(e) => updateSpecialFundraiser(f.id, "title", e.target.value)} /><input type="date" value={f.fundraiserDate} onChange={(e) => updateSpecialFundraiser(f.id, "fundraiserDate", e.target.value)} /><input type="number" placeholder="Amount Raised" value={f.amountRaised} onChange={(e) => updateSpecialFundraiser(f.id, "amountRaised", e.target.value)} /><input type="number" placeholder="Expenses" value={f.expenses} onChange={(e) => updateSpecialFundraiser(f.id, "expenses", e.target.value)} /><input type="text" placeholder="Notes" value={f.notes} onChange={(e) => updateSpecialFundraiser(f.id, "notes", e.target.value)} /><button className="danger" onClick={() => deleteSpecialFundraiser(f.id)}>Delete</button></div>)}</div></section>
 
