@@ -168,6 +168,7 @@ export default function App() {
   const [raffleData, setRaffleData] = useState({});
   const [savedSummary, setSavedSummary] = useState([]);
   const [cashSales, setCashSales] = useState([]);
+  const [salesAdjustments, setSalesAdjustments] = useState([]);
   const [specialFundraisers, setSpecialFundraisers] = useState([]);
   const [treasurerTransfers, setTreasurerTransfers] = useState([]);
   const [sp, setSp] = useState(null);
@@ -212,12 +213,8 @@ export default function App() {
         ranFrom: getField(f, connection.summaryColumnMap, "Ran From", ""),
         ranUntil: getField(f, connection.summaryColumnMap, "Ran Until", ""),
         monthsRan: getField(f, connection.summaryColumnMap, "Months Ran", ""),
-       squareGrossSales: moneyToNumber(
-  getField(f, connection.summaryColumnMap, "Gross Sales", 0)
-),
-grossSales: moneyToNumber(
-  getField(f, connection.summaryColumnMap, "Gross Sales", 0)
-),
+        squareGrossSales: moneyToNumber(getField(f, connection.summaryColumnMap, "Gross Sales", 0)),
+        grossSales: moneyToNumber(getField(f, connection.summaryColumnMap, "Gross Sales", 0)),
         squareFees: moneyToNumber(getField(f, connection.summaryColumnMap, "Square Fees", 0)),
         receiptCost: moneyToNumber(getField(f, connection.summaryColumnMap, "Receipt Cost", 0)),
         totalExpenses: moneyToNumber(getField(f, connection.summaryColumnMap, "Total Expenses", 0)),
@@ -288,6 +285,7 @@ grossSales: moneyToNumber(
     setSavedSummary(loadedSummary);
     setRaffleData(groupedReceipts);
     setCashSales(loadedCashSales);
+    setSalesAdjustments([]);
     setSpecialFundraisers(loadedSpecialFundraisers);
     setTreasurerTransfers(loadedTransfers);
     setStatus("Loaded SharePoint data.");
@@ -360,19 +358,35 @@ grossSales: moneyToNumber(
   function addCashSale() {
     setCashSales((prev) => [...prev, { id: crypto.randomUUID(), raffleNumber: "", cashDate: formatDate(new Date()), amount: "", notes: "", inactive: false }]);
   }
+
   function updateCashSale(id, field, value) {
     setCashSales((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
   }
+
   function deleteCashSale(id) {
     setCashSales((prev) => prev.filter((row) => row.id !== id));
+  }
+
+  function addSalesAdjustment() {
+    setSalesAdjustments((prev) => [...prev, { id: crypto.randomUUID(), raffleNumber: "", amount: "", notes: "", inactive: false }]);
+  }
+
+  function updateSalesAdjustment(id, field, value) {
+    setSalesAdjustments((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
+  }
+
+  function deleteSalesAdjustment(id) {
+    setSalesAdjustments((prev) => prev.filter((row) => row.id !== id));
   }
 
   function addSpecialFundraiser() {
     setSpecialFundraisers((prev) => [...prev, { id: crypto.randomUUID(), title: "", fundraiserDate: formatDate(new Date()), amountRaised: "", expenses: "", notes: "", inactive: false }]);
   }
+
   function updateSpecialFundraiser(id, field, value) {
     setSpecialFundraisers((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
   }
+
   function deleteSpecialFundraiser(id) {
     setSpecialFundraisers((prev) => prev.filter((row) => row.id !== id));
   }
@@ -380,9 +394,11 @@ grossSales: moneyToNumber(
   function addTreasurerTransfer() {
     setTreasurerTransfers((prev) => [...prev, { id: crypto.randomUUID(), title: "Transfer to Checking", transferDate: formatDate(new Date()), amount: "", purpose: "", inactive: false }]);
   }
+
   function updateTreasurerTransfer(id, field, value) {
     setTreasurerTransfers((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
   }
+
   function deleteTreasurerTransfer(id) {
     setTreasurerTransfers((prev) => prev.filter((row) => row.id !== id));
   }
@@ -396,6 +412,16 @@ grossSales: moneyToNumber(
     });
     return grouped;
   }, [cashSales]);
+
+  const adjustmentsByRaffle = useMemo(() => {
+    const grouped = {};
+    salesAdjustments.filter((adj) => !adj.inactive).forEach((adj) => {
+      const raffleNumber = cleanRaffleNumber(adj.raffleNumber);
+      if (!raffleNumber) return;
+      grouped[raffleNumber] = (grouped[raffleNumber] || 0) + moneyToNumber(adj.amount);
+    });
+    return grouped;
+  }, [salesAdjustments]);
 
   const csvReport = useMemo(() => {
     const grouped = {};
@@ -435,6 +461,7 @@ grossSales: moneyToNumber(
         monthsRan,
         squareGrossSales: raffle.grossSales,
         manualCashSales: 0,
+        adjustmentAmount: 0,
         grossSales: raffle.grossSales,
         squareFees,
         receiptCost: 0,
@@ -449,7 +476,7 @@ grossSales: moneyToNumber(
   const displayReport = useMemo(() => {
     const merged = {};
     savedSummary.forEach((r) => {
-      merged[r.raffleNumber] = { ...r, squareGrossSales: Number(r.grossSales || 0), manualCashSales: 0 };
+      merged[r.raffleNumber] = { ...r, squareGrossSales: Number(r.grossSales || 0), manualCashSales: 0, adjustmentAmount: 0 };
     });
     csvReport.forEach((r) => {
       const existing = merged[r.raffleNumber] || {};
@@ -461,19 +488,20 @@ grossSales: moneyToNumber(
       const receipts = currentData.receipts || raffle.receipts || [];
       const squareGrossSales = Number(raffle.squareGrossSales || 0);
       const manualCashSales = Number(cashSalesByRaffle[raffle.raffleNumber] || 0);
-      const grossSales = squareGrossSales + manualCashSales;
+      const adjustmentAmount = Number(adjustmentsByRaffle[raffle.raffleNumber] || 0);
+      const grossSales = squareGrossSales + manualCashSales + adjustmentAmount;
       const receiptCost = calculateReceiptCost(receipts);
       const squareFees = Number(raffle.squareFees || 0);
       const totalExpenses = squareFees + receiptCost;
       const netProfit = grossSales - totalExpenses;
-      return { ...raffle, stock: Number(currentData.stock ?? raffle.stock ?? 0), inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, squareGrossSales, manualCashSales, grossSales, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
+      return { ...raffle, stock: Number(currentData.stock ?? raffle.stock ?? 0), inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, squareGrossSales, manualCashSales, adjustmentAmount, grossSales, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
     }).sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
-  }, [csvReport, savedSummary, raffleData, cashSalesByRaffle]);
+  }, [csvReport, savedSummary, raffleData, cashSalesByRaffle, adjustmentsByRaffle]);
 
- const printReport = useMemo(
-  () => displayReport.filter((raffle) => isRaffleInReportMonthRange(raffle)),
-  [displayReport]
-);
+  const printReport = useMemo(
+    () => displayReport.filter((raffle) => isRaffleInReportMonthRange(raffle)),
+    [displayReport]
+  );
 
   const printSpecialFundraisers = useMemo(() => specialFundraisers.filter((f) => !f.inactive && isDateInLastMonth(f.fundraiserDate)), [specialFundraisers]);
   const printTreasurerTransfers = useMemo(() => treasurerTransfers.filter((t) => !t.inactive && isDateInLastMonth(t.transferDate)), [treasurerTransfers]);
@@ -483,13 +511,14 @@ grossSales: moneyToNumber(
       sum.onlineSold += Number(r.onlineSold || 0);
       sum.squareGrossSales += Number(r.squareGrossSales || 0);
       sum.manualCashSales += Number(r.manualCashSales || 0);
+      sum.adjustmentAmount += Number(r.adjustmentAmount || 0);
       sum.grossSales += Number(r.grossSales || 0);
       sum.squareFees += Number(r.squareFees || 0);
       sum.receiptCost += Number(r.receiptCost || 0);
       sum.totalExpenses += Number(r.totalExpenses || 0);
       sum.netProfit += Number(r.netProfit || 0);
       return sum;
-    }, { onlineSold: 0, squareGrossSales: 0, manualCashSales: 0, grossSales: 0, squareFees: 0, receiptCost: 0, totalExpenses: 0, netProfit: 0 });
+    }, { onlineSold: 0, squareGrossSales: 0, manualCashSales: 0, adjustmentAmount: 0, grossSales: 0, squareFees: 0, receiptCost: 0, totalExpenses: 0, netProfit: 0 });
   }, [displayReport]);
 
   const specialFundraiserTotals = useMemo(() => {
@@ -565,7 +594,7 @@ grossSales: moneyToNumber(
           "Ran From": r.ranFrom || null,
           "Ran Until": r.ranUntil || null,
           "Months Ran": r.monthsRan || "",
-          "Gross Sales": Number(r.squareGrossSales || 0),
+          "Gross Sales": Number(r.grossSales || 0),
           "Square Fees": Number(r.squareFees || 0),
           "Receipt Cost": Number(r.receiptCost || 0),
           "Total Expenses": Number(r.totalExpenses || 0),
@@ -655,7 +684,7 @@ grossSales: moneyToNumber(
       <header className="hero">
         <p className="eyebrow">SharePoint Raffle Reporting</p>
         <h1>Raffle Cost Breakout Report</h1>
-        <p>Upload Square CSV files, enter receipt costs, manual cash sales, special fundraisers, and treasurer transfers.</p>
+        <p>Upload Square CSV files, enter receipt costs, manual cash sales, hidden sales adjustments, special fundraisers, and treasurer transfers.</p>
       </header>
 
       <section className="upload-card no-print">
@@ -681,18 +710,17 @@ grossSales: moneyToNumber(
           <section className="summary-grid">
             <div className="summary-card"><span>Square Gross Sales</span><strong>{formatMoney(raffleTotals.squareGrossSales)}</strong></div>
             <div className="summary-card"><span>Manual Cash Sales</span><strong>{formatMoney(raffleTotals.manualCashSales)}</strong></div>
+            <div className="summary-card"><span>Hidden Adjustments</span><strong>{formatMoney(raffleTotals.adjustmentAmount)}</strong></div>
             <div className="summary-card"><span>Total Sales</span><strong>{formatMoney(raffleTotals.grossSales)}</strong></div>
             <div className="summary-card"><span>Total Expenses</span><strong>{formatMoney(raffleTotals.totalExpenses)}</strong></div>
             <div className="summary-card profit-card"><span>Raffle Net Profit</span><strong>{formatMoney(raffleTotals.netProfit)}</strong></div>
           </section>
 
-          
-
           <section className="report-card screen-report">
             <h2>Raffle Cost Breakout</h2>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Raffle #</th><th className="no-print">Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th><th className="no-print">Receipts</th></tr></thead>
+                <thead><tr><th>Raffle #</th><th className="no-print">Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th className="no-print">Hidden Adjustment</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th><th className="no-print">Receipts</th></tr></thead>
                 <tbody>
                   {displayReport.map((r) => (
                     <tr key={r.raffleNumber} className={r.inactive ? "inactive-row" : ""}>
@@ -702,6 +730,7 @@ grossSales: moneyToNumber(
                       <td>{r.onlineSold}</td>
                       <td>{formatMoney(r.squareGrossSales)}</td>
                       <td>{formatMoney(r.manualCashSales)}</td>
+                      <td className="no-print">{formatMoney(r.adjustmentAmount)}</td>
                       <td>{formatMoney(r.grossSales)}</td>
                       <td>{formatMoney(r.squareFees)}</td>
                       <td>{formatMoney(r.receiptCost)}</td>
@@ -711,7 +740,7 @@ grossSales: moneyToNumber(
                     </tr>
                   ))}
                 </tbody>
-                <tfoot><tr><td colSpan="3">TOTALS</td><td>{raffleTotals.onlineSold}</td><td>{formatMoney(raffleTotals.squareGrossSales)}</td><td>{formatMoney(raffleTotals.manualCashSales)}</td><td>{formatMoney(raffleTotals.grossSales)}</td><td>{formatMoney(raffleTotals.squareFees)}</td><td>{formatMoney(raffleTotals.receiptCost)}</td><td>{formatMoney(raffleTotals.totalExpenses)}</td><td>{formatMoney(raffleTotals.netProfit)}</td><td className="no-print"></td></tr></tfoot>
+                <tfoot><tr><td colSpan="3">TOTALS</td><td>{raffleTotals.onlineSold}</td><td>{formatMoney(raffleTotals.squareGrossSales)}</td><td>{formatMoney(raffleTotals.manualCashSales)}</td><td className="no-print">{formatMoney(raffleTotals.adjustmentAmount)}</td><td>{formatMoney(raffleTotals.grossSales)}</td><td>{formatMoney(raffleTotals.squareFees)}</td><td>{formatMoney(raffleTotals.receiptCost)}</td><td>{formatMoney(raffleTotals.totalExpenses)}</td><td>{formatMoney(raffleTotals.netProfit)}</td><td className="no-print"></td></tr></tfoot>
               </table>
             </div>
           </section>
@@ -730,8 +759,6 @@ grossSales: moneyToNumber(
                 </tbody>
               </table>
             </div>
-
-         
           </section>
 
           <section className="report-card no-print">
@@ -743,6 +770,8 @@ grossSales: moneyToNumber(
           </section>
 
           <section className="report-card no-print"><div className="receipt-header"><div><h2>Manual Cash Raffle Sales</h2><p>Cash ticket sales that were not included in Square.</p></div><button onClick={addCashSale}>Add Cash Sale</button></div><div className="receipt-list">{cashSales.map((sale) => <div className="manual-row" key={sale.id}><input type="text" placeholder="Raffle #" value={sale.raffleNumber} onChange={(e) => updateCashSale(sale.id, "raffleNumber", e.target.value)} /><input type="date" value={sale.cashDate} onChange={(e) => updateCashSale(sale.id, "cashDate", e.target.value)} /><input type="number" placeholder="Amount" value={sale.amount} onChange={(e) => updateCashSale(sale.id, "amount", e.target.value)} /><input type="text" placeholder="Notes" value={sale.notes} onChange={(e) => updateCashSale(sale.id, "notes", e.target.value)} /><button className="danger" onClick={() => deleteCashSale(sale.id)}>Delete</button></div>)}</div></section>
+
+          <section className="report-card no-print"><div className="receipt-header"><div><h2>Hidden Sales Adjustments</h2><p>Adjustment amounts increase Total Sales and Net Profit but do not print as a separate report field.</p></div><button onClick={addSalesAdjustment}>Add Adjustment</button></div><div className="receipt-list">{salesAdjustments.map((adj) => <div className="manual-row" key={adj.id}><input type="text" placeholder="Raffle #" value={adj.raffleNumber} onChange={(e) => updateSalesAdjustment(adj.id, "raffleNumber", e.target.value)} /><input type="number" placeholder="Adjustment Amount" value={adj.amount} onChange={(e) => updateSalesAdjustment(adj.id, "amount", e.target.value)} /><input type="text" placeholder="Notes" value={adj.notes} onChange={(e) => updateSalesAdjustment(adj.id, "notes", e.target.value)} /><button className="danger" onClick={() => deleteSalesAdjustment(adj.id)}>Delete</button></div>)}</div></section>
 
           <section className="report-card no-print"><div className="receipt-header"><div><h2>Special Fundraisers</h2><p>Chili Cook Off, popcorn donations, Festival of Lights, etc.</p></div><button onClick={addSpecialFundraiser}>Add Fundraiser</button></div><div className="receipt-list">{specialFundraisers.map((f) => <div className="manual-row six-col" key={f.id}><input type="text" placeholder="Fundraiser Name" value={f.title} onChange={(e) => updateSpecialFundraiser(f.id, "title", e.target.value)} /><input type="date" value={f.fundraiserDate} onChange={(e) => updateSpecialFundraiser(f.id, "fundraiserDate", e.target.value)} /><input type="number" placeholder="Amount Raised" value={f.amountRaised} onChange={(e) => updateSpecialFundraiser(f.id, "amountRaised", e.target.value)} /><input type="number" placeholder="Expenses" value={f.expenses} onChange={(e) => updateSpecialFundraiser(f.id, "expenses", e.target.value)} /><input type="text" placeholder="Notes" value={f.notes} onChange={(e) => updateSpecialFundraiser(f.id, "notes", e.target.value)} /><button className="danger" onClick={() => deleteSpecialFundraiser(f.id)}>Delete</button></div>)}</div></section>
 
