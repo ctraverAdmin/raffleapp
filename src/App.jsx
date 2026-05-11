@@ -486,15 +486,16 @@ export default function App() {
     return Object.values(merged).map((raffle) => {
       const currentData = raffleData[raffle.raffleNumber] || {};
       const receipts = currentData.receipts || raffle.receipts || [];
-      const squareGrossSales = Number(raffle.squareGrossSales || 0);
+      const baseSquareGrossSales = Number(raffle.squareGrossSales || 0);
       const manualCashSales = Number(cashSalesByRaffle[raffle.raffleNumber] || 0);
       const adjustmentAmount = Number(adjustmentsByRaffle[raffle.raffleNumber] || 0);
-      const grossSales = squareGrossSales + manualCashSales + adjustmentAmount;
+      const squareGrossSales = baseSquareGrossSales + adjustmentAmount;
+      const grossSales = squareGrossSales + manualCashSales;
       const receiptCost = calculateReceiptCost(receipts);
       const squareFees = Number(raffle.squareFees || 0);
       const totalExpenses = squareFees + receiptCost;
       const netProfit = grossSales - totalExpenses;
-      return { ...raffle, stock: Number(currentData.stock ?? raffle.stock ?? 0), inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, squareGrossSales, manualCashSales, adjustmentAmount, grossSales, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
+      return { ...raffle, stock: Number(currentData.stock ?? raffle.stock ?? 0), inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, baseSquareGrossSales, squareGrossSales, manualCashSales, adjustmentAmount, grossSales, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
     }).sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
   }, [csvReport, savedSummary, raffleData, cashSalesByRaffle, adjustmentsByRaffle]);
 
