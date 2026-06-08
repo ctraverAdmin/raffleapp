@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Papa from "papaparse";
 import "./App.css";
 import {
@@ -162,6 +162,14 @@ function blankRaffleData() {
   return { stock: "", inactive: false, receipts: [] };
 }
 
+function hasManualField(data, field) {
+  return Object.prototype.hasOwnProperty.call(data || {}, field);
+}
+
+function getManualField(data, field, fallback) {
+  return hasManualField(data, field) ? data[field] : fallback;
+}
+
 export default function App() {
   const [rows, setRows] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -173,6 +181,7 @@ export default function App() {
   const [treasurerTransfers, setTreasurerTransfers] = useState([]);
   const [sp, setSp] = useState(null);
   const [status, setStatus] = useState("");
+  const [editingRaffleNumber, setEditingRaffleNumber] = useState(null);
 
   async function connect() {
     try {
@@ -230,22 +239,65 @@ grossSales: moneyToNumber(
     });
 
     const groupedReceipts = {};
+    const receiptSeenKeys = new Set();
+
     receiptItems.forEach((item) => {
       const f = item.fields;
-      const raffleNumber = getField(f, connection.receiptsColumnMap, "Raffle Number") || f.Title || "Unknown";
+
+      const raffleNumber =
+        getField(f, connection.receiptsColumnMap, "Raffle Number") ||
+        f.Title ||
+        "Unknown";
+
       const cleanNumber = cleanRaffleNumber(raffleNumber);
-      if (!groupedReceipts[cleanNumber]) groupedReceipts[cleanNumber] = blankRaffleData();
+
+      const vendor = String(
+        getField(f, connection.receiptsColumnMap, "Vendor", "")
+      ).trim();
+
+      const description = String(
+        getField(f, connection.receiptsColumnMap, "Description", "")
+      ).trim();
+
+      const amount = moneyToNumber(
+        getField(f, connection.receiptsColumnMap, "Amount", 0)
+      );
+
+      const receiptKey = [
+        cleanNumber,
+        vendor.toLowerCase(),
+        description.toLowerCase(),
+        amount.toFixed(2),
+      ].join("|");
+
+      if (receiptSeenKeys.has(receiptKey)) {
+        return;
+      }
+
+      receiptSeenKeys.add(receiptKey);
+
+      if (!groupedReceipts[cleanNumber]) {
+        groupedReceipts[cleanNumber] = blankRaffleData();
+      }
+
       groupedReceipts[cleanNumber].receipts.push({
         id: crypto.randomUUID(),
-        vendor: getField(f, connection.receiptsColumnMap, "Vendor", ""),
-        description: getField(f, connection.receiptsColumnMap, "Description", ""),
-        amount: moneyToNumber(getField(f, connection.receiptsColumnMap, "Amount", 0)),
+        vendor,
+        description,
+        amount,
       });
     });
 
     loadedSummary.forEach((r) => {
       if (!groupedReceipts[r.raffleNumber]) groupedReceipts[r.raffleNumber] = blankRaffleData();
+      groupedReceipts[r.raffleNumber].prize = r.prize || "";
+      groupedReceipts[r.raffleNumber].onlineSold = r.onlineSold || 0;
       groupedReceipts[r.raffleNumber].stock = r.stock;
+      groupedReceipts[r.raffleNumber].ranFrom = r.ranFrom || "";
+      groupedReceipts[r.raffleNumber].ranUntil = r.ranUntil || "";
+      groupedReceipts[r.raffleNumber].monthsRan = r.monthsRan || "";
+      groupedReceipts[r.raffleNumber].squareGrossSales = r.squareGrossSales || r.grossSales || 0;
+      groupedReceipts[r.raffleNumber].squareFees = r.squareFees || 0;
       groupedReceipts[r.raffleNumber].inactive = Boolean(r.inactive);
     });
 
@@ -317,6 +369,29 @@ grossSales: moneyToNumber(
 
   function updateRaffleField(raffleNumber, field, value) {
     setRaffleData((prev) => ({ ...prev, [raffleNumber]: { ...blankRaffleData(), ...(prev[raffleNumber] || {}), [field]: value } }));
+  }
+
+  function startEditingRaffle(raffle) {
+    setRaffleData((prev) => ({
+      ...prev,
+      [raffle.raffleNumber]: {
+        ...blankRaffleData(),
+        ...(prev[raffle.raffleNumber] || {}),
+        prize: getManualField(prev[raffle.raffleNumber], "prize", raffle.prize || ""),
+        onlineSold: getManualField(prev[raffle.raffleNumber], "onlineSold", raffle.onlineSold || 0),
+        stock: getManualField(prev[raffle.raffleNumber], "stock", raffle.stock || 0),
+        ranFrom: getManualField(prev[raffle.raffleNumber], "ranFrom", raffle.ranFrom || ""),
+        ranUntil: getManualField(prev[raffle.raffleNumber], "ranUntil", raffle.ranUntil || ""),
+        monthsRan: getManualField(prev[raffle.raffleNumber], "monthsRan", raffle.monthsRan || ""),
+        squareGrossSales: getManualField(prev[raffle.raffleNumber], "squareGrossSales", raffle.squareGrossSales || 0),
+        squareFees: getManualField(prev[raffle.raffleNumber], "squareFees", raffle.squareFees || 0),
+      },
+    }));
+    setEditingRaffleNumber(raffle.raffleNumber);
+  }
+
+  function finishEditingRaffle() {
+    setEditingRaffleNumber(null);
   }
 
   function toggleInactive(raffleNumber) {
@@ -461,14 +536,20 @@ grossSales: moneyToNumber(
     return Object.values(merged).map((raffle) => {
       const currentData = raffleData[raffle.raffleNumber] || {};
       const receipts = currentData.receipts || raffle.receipts || [];
-      const squareGrossSales = Number(raffle.squareGrossSales || 0);
+      const prize = getManualField(currentData, "prize", raffle.prize || "");
+      const onlineSold = Number(getManualField(currentData, "onlineSold", raffle.onlineSold || 0));
+      const stock = Number(getManualField(currentData, "stock", raffle.stock || 0));
+      const ranFrom = getManualField(currentData, "ranFrom", raffle.ranFrom || "");
+      const ranUntil = getManualField(currentData, "ranUntil", raffle.ranUntil || "");
+      const monthsRan = getManualField(currentData, "monthsRan", raffle.monthsRan || "");
+      const squareGrossSales = moneyToNumber(getManualField(currentData, "squareGrossSales", raffle.squareGrossSales || 0));
+      const squareFees = moneyToNumber(getManualField(currentData, "squareFees", raffle.squareFees || 0));
       const manualCashSales = Number(cashSalesByRaffle[raffle.raffleNumber] || 0);
       const grossSales = squareGrossSales + manualCashSales;
       const receiptCost = calculateReceiptCost(receipts);
-      const squareFees = Number(raffle.squareFees || 0);
       const totalExpenses = squareFees + receiptCost;
       const netProfit = grossSales - totalExpenses;
-      return { ...raffle, stock: Number(currentData.stock ?? raffle.stock ?? 0), inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, squareGrossSales, manualCashSales, grossSales, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
+      return { ...raffle, prize, onlineSold, stock, ranFrom, ranUntil, monthsRan, inactive: Boolean(currentData.inactive ?? raffle.inactive ?? false), receipts, squareGrossSales, manualCashSales, grossSales, squareFees, receiptCost, totalExpenses, netProfit, needsReceipts: receiptCost <= 0 };
     }).sort((a, b) => Number(a.raffleNumber) - Number(b.raffleNumber));
   }, [csvReport, savedSummary, raffleData, cashSalesByRaffle]);
 
@@ -563,10 +644,8 @@ grossSales: moneyToNumber(
       setStatus("Clearing old SharePoint summary data...");
       await clearList(sp.siteId, sp.summaryListId);
 
-      if (totalReceiptRows > 0) {
-        setStatus("Clearing old SharePoint receipt data...");
-        await clearList(sp.siteId, sp.receiptsListId);
-      }
+      setStatus("Clearing old SharePoint receipt data...");
+      await clearList(sp.siteId, sp.receiptsListId);
 
       setStatus("Saving summary to SharePoint...");
       for (const r of reportSnapshot) {
@@ -722,24 +801,58 @@ grossSales: moneyToNumber(
             <h2>Raffle Cost Breakout</h2>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Raffle #</th><th className="no-print">Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th><th className="no-print">Receipts</th></tr></thead>
+                <thead><tr><th>Raffle #</th><th className="no-print">Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th><th className="no-print">Actions</th></tr></thead>
                 <tbody>
-                  {displayReport.map((r) => (
-                    <tr key={r.raffleNumber} className={r.inactive ? "inactive-row" : ""}>
-                      <td>#{r.raffleNumber}</td>
-                      <td className="no-print"><button className={r.inactive ? "inactive-button active" : "inactive-button"} onClick={() => toggleInactive(r.raffleNumber)}>{r.inactive ? "Inactive" : "Active"}</button></td>
-                      <td><strong>{r.prize}</strong>{r.needsReceipts && <div className="receipt-warning">Receipt cost missing</div>}</td>
-                      <td>{r.onlineSold}</td>
-                      <td>{formatMoney(r.squareGrossSales)}</td>
-                      <td>{formatMoney(r.manualCashSales)}</td>
-                      <td>{formatMoney(r.grossSales)}</td>
-                      <td>{formatMoney(r.squareFees)}</td>
-                      <td>{formatMoney(r.receiptCost)}</td>
-                      <td>{formatMoney(r.totalExpenses)}</td>
-                      <td className={r.netProfit >= 0 ? "profit strong" : "loss strong"}>{formatMoney(r.netProfit)}</td>
-                      <td className="no-print"><button onClick={() => addReceipt(r.raffleNumber)}>Add Receipt</button></td>
-                    </tr>
-                  ))}
+                  {displayReport.map((r) => {
+                    const isEditing = editingRaffleNumber === r.raffleNumber;
+                    return (
+                      <Fragment key={r.raffleNumber}>
+                        <tr className={r.inactive ? "inactive-row" : ""}>
+                          <td>#{r.raffleNumber}</td>
+                          <td className="no-print"><button className={r.inactive ? "inactive-button active" : "inactive-button"} onClick={() => toggleInactive(r.raffleNumber)}>{r.inactive ? "Inactive" : "Active"}</button></td>
+                          <td>{isEditing ? <input type="text" value={r.prize} onChange={(e) => updateRaffleField(r.raffleNumber, "prize", e.target.value)} /> : <><strong>{r.prize}</strong>{r.needsReceipts && <div className="receipt-warning">Receipt cost missing</div>}</>}</td>
+                          <td>{isEditing ? <input type="number" value={r.onlineSold} onChange={(e) => updateRaffleField(r.raffleNumber, "onlineSold", e.target.value)} /> : r.onlineSold}</td>
+                          <td>{isEditing ? <input type="number" step="0.01" value={r.squareGrossSales} onChange={(e) => updateRaffleField(r.raffleNumber, "squareGrossSales", e.target.value)} /> : formatMoney(r.squareGrossSales)}</td>
+                          <td>{formatMoney(r.manualCashSales)}</td>
+                          <td>{formatMoney(r.grossSales)}</td>
+                          <td>{isEditing ? <input type="number" step="0.01" value={r.squareFees} onChange={(e) => updateRaffleField(r.raffleNumber, "squareFees", e.target.value)} /> : formatMoney(r.squareFees)}</td>
+                          <td>{formatMoney(r.receiptCost)}</td>
+                          <td>{formatMoney(r.totalExpenses)}</td>
+                          <td className={r.netProfit >= 0 ? "profit strong" : "loss strong"}>{formatMoney(r.netProfit)}</td>
+                          <td className="no-print">
+                            <div className="button-row compact-actions">
+                              {isEditing ? <button onClick={finishEditingRaffle}>Done</button> : <button onClick={() => startEditingRaffle(r)}>Edit</button>}
+                              <button onClick={() => addReceipt(r.raffleNumber)}>Add Receipt</button>
+                            </div>
+                          </td>
+                        </tr>
+                        {isEditing && (
+                          <tr className="edit-detail-row no-print">
+                            <td colSpan="12">
+                              <div className="edit-detail-grid">
+                                <label>
+                                  Stock / Tickets Available
+                                  <input type="number" value={r.stock} onChange={(e) => updateRaffleField(r.raffleNumber, "stock", e.target.value)} />
+                                </label>
+                                <label>
+                                  Ran From
+                                  <input type="date" value={formatDate(r.ranFrom)} onChange={(e) => updateRaffleField(r.raffleNumber, "ranFrom", e.target.value)} />
+                                </label>
+                                <label>
+                                  Ran Until
+                                  <input type="date" value={formatDate(r.ranUntil)} onChange={(e) => updateRaffleField(r.raffleNumber, "ranUntil", e.target.value)} />
+                                </label>
+                                <label>
+                                  Months Ran
+                                  <input type="text" value={r.monthsRan} onChange={(e) => updateRaffleField(r.raffleNumber, "monthsRan", e.target.value)} />
+                                </label>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
                 <tfoot><tr><td colSpan="3">TOTALS</td><td>{adjustedRaffleTotals.onlineSold}</td><td>{formatMoney(adjustedRaffleTotals.squareGrossSales)}</td><td>{formatMoney(adjustedRaffleTotals.manualCashSales)}</td><td>{formatMoney(adjustedRaffleTotals.grossSales)}</td><td>{formatMoney(adjustedRaffleTotals.squareFees)}</td><td>{formatMoney(adjustedRaffleTotals.receiptCost)}</td><td>{formatMoney(adjustedRaffleTotals.totalExpenses)}</td><td>{formatMoney(adjustedRaffleTotals.netProfit)}</td><td className="no-print"></td></tr></tfoot>
               </table>
@@ -754,7 +867,7 @@ grossSales: moneyToNumber(
                 <thead><tr><th>Raffle #</th><th>Status</th><th>Prize</th><th>Online Sold</th><th>Square Sales</th><th>Manual Cash Sales</th><th>Total Sales</th><th>Square Fees</th><th>Total Receipt Cost</th><th>Total Expense Amount</th><th>Raffle Net Profit</th></tr></thead>
                 <tbody>
                   {printReport.map((r) => (
-                    <tr key={`print-${r.raffleNumber}`}><td>#{r.raffleNumber}</td><td>{r.inactive ? "Inactive" : "Active"}</td><td><strong>{r.prize}</strong>{r.needsReceipts && <div className="receipt-warning">Needs Review</div>}</td><td>{r.onlineSold}</td><td>{formatMoney(r.squareGrossSales)}</td><td>{formatMoney(r.manualCashSales)}</td><td>{formatMoney(r.grossSales)}</td><td>{formatMoney(r.squareFees)}</td><td>{formatMoney(r.receiptCost)}</td><td>{formatMoney(r.totalExpenses)}</td><td className={r.netProfit >= 0 ? "profit strong" : "loss strong"}>{formatMoney(r.netProfit)}</td></tr>
+                    <tr key={`print-${r.raffleNumber}`}><td>#{r.raffleNumber}</td><td>{r.inactive ? "Inactive" : "Active"}</td><td><strong>{r.prize}</strong>{r.needsReceipts && <div className="receipt-warning">Needs Receipt</div>}</td><td>{r.onlineSold}</td><td>{formatMoney(r.squareGrossSales)}</td><td>{formatMoney(r.manualCashSales)}</td><td>{formatMoney(r.grossSales)}</td><td>{formatMoney(r.squareFees)}</td><td>{formatMoney(r.receiptCost)}</td><td>{formatMoney(r.totalExpenses)}</td><td className={r.netProfit >= 0 ? "profit strong" : "loss strong"}>{formatMoney(r.netProfit)}</td></tr>
                   ))}
                   {printReport.length === 0 && <tr><td colSpan="11">No raffles found for {getReportMonthLabel()}.</td></tr>}
                 </tbody>
@@ -782,3 +895,4 @@ grossSales: moneyToNumber(
     </div>
   );
 }
+
