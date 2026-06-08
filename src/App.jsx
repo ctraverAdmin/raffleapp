@@ -6,6 +6,7 @@ import {
   getListItems,
   clearList,
   createListItem,
+  updateListItem,
 } from "./sharepoint";
 
 function normalizeName(value) {
@@ -215,6 +216,7 @@ export default function App() {
       const f = item.fields;
       const raffleNumber = getField(f, connection.summaryColumnMap, "Raffle Number") || f.Title || "";
       return {
+        spItemId: item.id,
         raffleNumber: cleanRaffleNumber(raffleNumber),
         prize: getField(f, connection.summaryColumnMap, "Prize", ""),
         onlineSold: Number(getField(f, connection.summaryColumnMap, "Online Sold", 0)),
@@ -607,6 +609,95 @@ grossSales: moneyToNumber(
 
   const finalNetRemaining = adjustedRaffleTotals.netProfit + specialFundraiserTotals.net - transferTotals.amount;
 
+  function buildSummaryPayload(r) {
+    const receiptCost = calculateReceiptCost(r.receipts || []);
+    const squareFees = moneyToNumber(r.squareFees);
+    const squareGrossSales = moneyToNumber(r.squareGrossSales);
+    const grossSales = squareGrossSales + moneyToNumber(r.manualCashSales);
+    const totalExpenses = squareFees + receiptCost;
+    const netProfit = grossSales - totalExpenses;
+
+    return {
+      Title: `Raffle #${r.raffleNumber}`,
+      "Raffle Number": String(r.raffleNumber),
+      Prize: r.prize || "",
+      "Online Sold": Number(r.onlineSold || 0),
+      Stock: Number(raffleData[r.raffleNumber]?.stock ?? r.stock ?? 0),
+      "Ran From": r.ranFrom || null,
+      "Ran Until": r.ranUntil || null,
+      "Months Ran": r.monthsRan || "",
+      "Gross Sales": squareGrossSales,
+      "Square Fees": squareFees,
+      "Receipt Cost": receiptCost,
+      "Total Expenses": totalExpenses,
+      "Net Profit": netProfit,
+      "Needs Receipt": receiptCost <= 0,
+      Inactive: Boolean(r.inactive),
+    };
+  }
+
+  async function saveSingleRaffleSummary(raffleNumber) {
+    if (!sp) {
+      alert("Connect to SharePoint first.");
+      return;
+    }
+
+    const raffle = displayReport.find((r) => r.raffleNumber === raffleNumber);
+    if (!raffle) {
+      alert("I could not find this raffle row to save.");
+      return;
+    }
+
+    try {
+      setStatus(`Saving Raffle #${raffleNumber} only...`);
+      const payload = buildSummaryPayload(raffle);
+      const existingSaved = savedSummary.find((saved) => saved.raffleNumber === raffleNumber);
+
+      let savedItemId = existingSaved?.spItemId;
+
+      if (savedItemId) {
+        await updateListItem(sp.siteId, sp.summaryListId, savedItemId, sp.summaryColumnMap, payload);
+      } else {
+        const created = await createListItem(sp.siteId, sp.summaryListId, sp.summaryColumnMap, payload);
+        savedItemId = created?.id || created?.listItem?.id || created?.fields?.id;
+      }
+
+      const updatedSavedRow = {
+        ...raffle,
+        ...payload,
+        spItemId: savedItemId,
+        raffleNumber: String(raffleNumber),
+        prize: payload.Prize,
+        onlineSold: payload["Online Sold"],
+        stock: payload.Stock,
+        ranFrom: payload["Ran From"] || "",
+        ranUntil: payload["Ran Until"] || "",
+        monthsRan: payload["Months Ran"],
+        squareGrossSales: payload["Gross Sales"],
+        grossSales: payload["Gross Sales"],
+        squareFees: payload["Square Fees"],
+        receiptCost: payload["Receipt Cost"],
+        totalExpenses: payload["Total Expenses"],
+        netProfit: payload["Net Profit"],
+        needsReceipts: payload["Needs Receipt"],
+        inactive: payload.Inactive,
+      };
+
+      setSavedSummary((prev) => {
+        const withoutThis = prev.filter((saved) => saved.raffleNumber !== raffleNumber);
+        return [...withoutThis, updatedSavedRow];
+      });
+
+      setEditingRaffleNumber(null);
+      setStatus(`Saved Raffle #${raffleNumber} only. SharePoint summary list was not cleared.`);
+      alert(`Saved Raffle #${raffleNumber}.`);
+    } catch (error) {
+      console.error(error);
+      setStatus(`Save failed for Raffle #${raffleNumber}.`);
+      alert(error.message || "Could not save this raffle.");
+    }
+  }
+
   async function saveToSharePoint() {
     if (!sp) {
       alert("Connect to SharePoint first.");
@@ -649,23 +740,7 @@ grossSales: moneyToNumber(
 
       setStatus("Saving summary to SharePoint...");
       for (const r of reportSnapshot) {
-        await createListItem(sp.siteId, sp.summaryListId, sp.summaryColumnMap, {
-          Title: `Raffle #${r.raffleNumber}`,
-          "Raffle Number": String(r.raffleNumber),
-          Prize: r.prize || "",
-          "Online Sold": Number(r.onlineSold || 0),
-          Stock: Number(raffleData[r.raffleNumber]?.stock ?? r.stock ?? 0),
-          "Ran From": r.ranFrom || null,
-          "Ran Until": r.ranUntil || null,
-          "Months Ran": r.monthsRan || "",
-          "Gross Sales": Number(r.squareGrossSales || 0),
-          "Square Fees": Number(r.squareFees || 0),
-          "Receipt Cost": Number(r.receiptCost || 0),
-          "Total Expenses": Number(r.totalExpenses || 0),
-          "Net Profit": Number(r.netProfit || 0),
-          "Needs Receipt": Boolean(r.needsReceipts),
-          Inactive: Boolean(r.inactive),
-        });
+        await createListItem(sp.siteId, sp.summaryListId, sp.summaryColumnMap, buildSummaryPayload(r));
       }
 
       if (totalReceiptRows > 0) {
@@ -821,7 +896,14 @@ grossSales: moneyToNumber(
                           <td className={r.netProfit >= 0 ? "profit strong" : "loss strong"}>{formatMoney(r.netProfit)}</td>
                           <td className="no-print">
                             <div className="button-row compact-actions">
-                              {isEditing ? <button onClick={finishEditingRaffle}>Done</button> : <button onClick={() => startEditingRaffle(r)}>Edit</button>}
+                              {isEditing ? (
+                                <>
+                                  <button onClick={() => saveSingleRaffleSummary(r.raffleNumber)}>Save This Raffle</button>
+                                  <button type="button" onClick={finishEditingRaffle}>Close</button>
+                                </>
+                              ) : (
+                                <button onClick={() => startEditingRaffle(r)}>Edit</button>
+                              )}
                               <button onClick={() => addReceipt(r.raffleNumber)}>Add Receipt</button>
                             </div>
                           </td>
@@ -895,4 +977,3 @@ grossSales: moneyToNumber(
     </div>
   );
 }
-
